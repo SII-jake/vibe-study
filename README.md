@@ -1,20 +1,24 @@
-# [项目名]
+# vibe-study
 
 > 面向人的项目概览：这个项目是什么、给谁用、怎么跑起来。
 
 ## 这是什么
 
-（一两句话说清系统定位与主链路。）
+Node/TypeScript 学习实践仓库，配套一套 agent 协作规则（AGENTS.md 入职手册 + docs/ 下的架构、规范、风险登记）。
+产品定位与主链路 TBD：随首个 feature 确立并回填，当前阶段以工程协作为主体。
 
 ## 快速开始
 
-（给人看的启动步骤；agent 视角的命令与验收见 `AGENTS.md` 的"常用命令"。）
+```bash
+npm install   # TBD：package.json 尚未创建，首个 feature 落地后本命令可用
+```
+
+agent 视角的命令与验收见 `AGENTS.md` 的"常用命令"。
 
 ## 仓库导览
 
 - `AGENTS.md`：AI 编码代理的入职手册。
-- `INIT.md`：模板初始化引导（仓库尚未初始化为本项目时存在；初始化完成后删除）。
-- `docs/architecture.md`：系统设计唯一权威（术语表 / 产品架构 / 逻辑架构 / 数据模型 / 代码架构 / 部署架构；骨架随模板下发）。
+- `docs/architecture.md`：系统设计唯一权威（§一 术语表 / §二 产品架构 / §三 逻辑架构 / §四 数据模型 / §五 代码架构 / §六 部署架构；多处登记 TBD 随首个 feature 回填）。
 - `docs/before-push-checklist.md`：push 前三态检查清单。
 - `docs/code-standards.md`：工程规范与反面案例。
 - `docs/agent-collab-metrics.md`：人机协作度量登记口径。
