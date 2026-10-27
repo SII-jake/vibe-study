@@ -75,11 +75,17 @@ export function breadcrumb(nodes: LearnNode[], nodeId: string): LearnNode[] {
   return path
 }
 
-/** 把某节点的子节点按锚点所在片段归组，供回答里逐片段挂引子卡片。 */
-export function childrenByFragment(nodes: LearnNode[], parentId: string): Map<number, LearnNode[]> {
+/** 把某节点的子节点按锚点所在片段归组，供回答里逐片段挂引子卡片。
+ *  传 messageId 时只归组锚定到该条回答的子节点（同节点多轮回答互不串位）。 */
+export function childrenByFragment(
+  nodes: LearnNode[],
+  parentId: string,
+  messageId?: string,
+): Map<number, LearnNode[]> {
   const grouped = new Map<number, LearnNode[]>()
   for (const node of nodes) {
     if (node.parentId !== parentId || !node.anchor) continue
+    if (messageId !== undefined && node.anchor.messageId !== messageId) continue
     const bucket = grouped.get(node.anchor.fragmentIndex) ?? []
     bucket.push(node)
     grouped.set(node.anchor.fragmentIndex, bucket)

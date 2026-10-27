@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildChatMessages } from '../domain/chat'
 import { addChildNode, type LearnNode, breadcrumb, createRootNode } from '../domain/tree'
-import { appendAnswer, clearAnswers, removeSubtree } from '../domain/tree-ops'
+import {
+  appendAnswer,
+  appendUserMessage,
+  clearLastAnswer,
+  removeSubtree,
+} from '../domain/tree-ops'
 import { streamChat } from '../ai/provider'
-import { isConfigured, loadConfig } from '../ai/settings'
+import { effectiveModel, fetchHealth, type ServerHealth, UNKNOWN_HEALTH } from '../ai/health'
 import { loadNodes, replaceAllNodes } from '../storage/db'
 import { createDemoNodes } from './demo'
 
@@ -20,9 +25,13 @@ export interface LearnData {
   nodes: LearnNode[]
   streamingNodeId: string | null
   streamingText: string
+  streamingStatus: string | null
   error: string | null
+  health: ServerHealth
+  refreshHealth(): void
   createTopic(topic: string): string
   askAt(input: AskInput): string
+  followUp(nodeId: string, question: string): void
   regenerate(nodeId: string): void
   remove(nodeId: string): void
   seedDemo(): Promise<void>
@@ -46,7 +55,9 @@ export function useLearnData(): LearnData {
   const [ready, setReady] = useState(false)
   const [streamingNodeId, setStreamingNodeId] = useState<string | null>(null)
   const [streamingText, setStreamingText] = useState('')
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [health, setHealth] = useState<ServerHealth>(UNKNOWN_HEALTH)
 
   const nodesRef = useRef<LearnNode[]>([])
   const controllerRef = useRef<AbortController | null>(null)
@@ -65,6 +76,14 @@ export function useLearnData(): LearnData {
       .finally(() => setReady(true))
   }, [])
 
+  const refreshHealth = useCallback(() => {
+    void fetchHealth().then(setHealth)
+  }, [])
+
+  useEffect(() => {
+    refreshHealth()
+  }, [refreshHealth])
+
   const apply = useCallback((next: LearnNode[]) => {
     nodesRef.current = next
     setNodes(next)
@@ -73,9 +92,10 @@ export function useLearnData(): LearnData {
 
   const runStream = useCallback(
     async (nodeId: string, latestNodes: LearnNode[]) => {
-      const config = loadConfig()
-      if (!isConfigured(config)) {
-        setError('还没有配置模型接口，先去设置里填地址、密钥与模型名。')
+      const current = await fetchHealth()
+      setHealth(current)
+      if (!current.configured) {
+        setError('服务端还没有配置模型接口，联系管理员在 server/.env 里填密钥。')
         return
       }
 
@@ -83,17 +103,20 @@ export function useLearnData(): LearnData {
       controllerRef.current = controller
       setStreamingNodeId(nodeId)
       setStreamingText('')
+      setStreamingStatus(null)
 
       let accumulated = ''
       try {
         await streamChat({
-          config,
           messages: buildChatMessages(breadcrumb(latestNodes, nodeId)),
+          model: effectiveModel(current),
           signal: controller.signal,
           onDelta: (delta) => {
             accumulated += delta
             setStreamingText(accumulated)
+            setStreamingStatus(null)
           },
+          onStatus: (status) => setStreamingStatus(status),
         })
         if (accumulated.trim() === '') {
           setError('模型没有返回内容，换个模型名或稍后重试。')
@@ -102,17 +125,28 @@ export function useLearnData(): LearnData {
         apply(appendAnswer(nodesRef.current, nodeId, accumulated, Date.now()))
       } catch (cause) {
         if (controller.signal.aborted) {
-          apply(clearAnswers(nodesRef.current, nodeId))
+          apply(clearLastAnswer(nodesRef.current, nodeId))
           return
         }
         setError(cause instanceof Error ? cause.message : '请求模型接口失败')
       } finally {
         setStreamingNodeId(null)
         setStreamingText('')
+        setStreamingStatus(null)
         controllerRef.current = null
       }
     },
     [apply],
+  )
+
+  /** 同节点再追问：不开新分支，问题与回答留在当前节点顺排，上下文含全部历史轮次。 */
+  const followUp = useCallback(
+    (nodeId: string, question: string) => {
+      const next = appendUserMessage(nodesRef.current, nodeId, question, Date.now())
+      apply(next)
+      void runStream(nodeId, next)
+    },
+    [apply, runStream],
   )
 
   const createTopic = useCallback(
@@ -151,7 +185,7 @@ export function useLearnData(): LearnData {
 
   const regenerate = useCallback(
     (nodeId: string) => {
-      const cleared = clearAnswers(nodesRef.current, nodeId)
+      const cleared = clearLastAnswer(nodesRef.current, nodeId)
       apply(cleared)
       void runStream(nodeId, cleared)
     },
@@ -181,9 +215,13 @@ export function useLearnData(): LearnData {
     nodes,
     streamingNodeId,
     streamingText,
+    streamingStatus,
     error,
+    health,
+    refreshHealth,
     createTopic,
     askAt,
+    followUp,
     regenerate,
     remove,
     seedDemo,

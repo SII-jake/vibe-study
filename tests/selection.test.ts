@@ -81,4 +81,22 @@ describe('readSelection', () => {
     range.setEnd(outside.firstChild as Text, 2)
     expect(readSelection(container, range)).toBeNull()
   })
+
+  it('片段属于某条回答时带回该消息 id', () => {
+    container.innerHTML = [
+      '<div data-message-id="m-a1">',
+      '  <div data-fragment-index="0"><p>第一轮段落</p></div>',
+      '</div>',
+      '<div data-message-id="m-a2">',
+      '  <div data-fragment-index="1"><p>第二轮段落</p></div>',
+      '</div>',
+    ].join('')
+    const node = container.querySelector('[data-fragment-index="1"] p')!.firstChild as Text
+    const range = rangeOver(node, 0, 4)
+    expect(readSelection(container, range)).toEqual({
+      fragmentIndex: 1,
+      text: '第二轮段',
+      messageId: 'm-a2',
+    })
+  })
 })

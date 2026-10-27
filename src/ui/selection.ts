@@ -3,6 +3,8 @@
 export interface SelectionReading {
   fragmentIndex: number
   text: string
+  /** 选中文字所属的那条回答（同节点多轮时用于定位分支挂在哪一轮） */
+  messageId?: string
 }
 
 function owningFragment(node: Node, container: HTMLElement): HTMLElement | null {
@@ -36,5 +38,9 @@ export function readSelection(container: HTMLElement, range: Range): SelectionRe
   }
 
   const normalized = text.replace(/\s+/g, ' ').trim()
-  return normalized === '' ? null : { fragmentIndex, text: normalized }
+  if (normalized === '') return null
+  const turnId = startFragment.closest('[data-message-id]')?.getAttribute('data-message-id') ?? undefined
+  const reading: SelectionReading = { fragmentIndex, text: normalized }
+  if (turnId) reading.messageId = turnId
+  return reading
 }

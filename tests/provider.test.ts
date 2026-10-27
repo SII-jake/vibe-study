@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { streamChat } from '../src/ai/provider'
-import type { AiConfig } from '../src/ai/settings'
-
-const config: AiConfig = {
-  baseUrl: 'https://api.example.com/v1',
-  apiKey: 'test-key',
-  model: 'test-model',
-}
 
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder()
@@ -34,7 +27,6 @@ describe('streamChat', () => {
     )
     const received: string[] = []
     await streamChat({
-      config,
       messages: [{ role: 'user', content: 'hi' }],
       fetchImpl: fetchImpl as unknown as typeof fetch,
       onDelta: (delta) => received.push(delta),
@@ -43,38 +35,29 @@ describe('streamChat', () => {
     expect(received).toEqual(['复利', '是'])
   })
 
-  it('请求地址与鉴权头按 OpenAI 兼容约定拼接', async () => {
+  it('只请求本机 /api/chat，不携带任何密钥', async () => {
     const fetchImpl = mockFetch(async () => sseResponse(['data: [DONE]\n\n']))
     await streamChat({
-      config,
       messages: [{ role: 'user', content: 'hi' }],
+      model: 'chosen-model',
       fetchImpl: fetchImpl as unknown as typeof fetch,
       onDelta: () => {},
       signal: new AbortController().signal,
     })
     const [url, init] = fetchImpl.mock.calls[0]!
-    expect(url).toBe('https://api.example.com/v1/chat/completions')
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer test-key')
-    expect(JSON.parse(init?.body as string)).toMatchObject({ model: 'test-model', stream: true })
-  })
-
-  it('baseUrl 结尾多余斜杠被归一', async () => {
-    const fetchImpl = mockFetch(async () => sseResponse(['data: [DONE]\n\n']))
-    await streamChat({
-      config: { ...config, baseUrl: 'https://api.example.com/v1//' },
+    expect(url).toBe('/api/chat')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' })
+    expect(JSON.stringify(init?.headers ?? {})).not.toMatch(/authorization/i)
+    expect(JSON.parse(init?.body as string)).toEqual({
       messages: [{ role: 'user', content: 'hi' }],
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      onDelta: () => {},
-      signal: new AbortController().signal,
+      model: 'chosen-model',
     })
-    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://api.example.com/v1/chat/completions')
   })
 
   it('响应非 2xx 时抛出带响应体信息的错误', async () => {
     const fetchImpl = mockFetch(async () => new Response('{"error":"invalid key"}', { status: 401 }))
     await expect(
       streamChat({
-        config,
         messages: [{ role: 'user', content: 'hi' }],
         fetchImpl: fetchImpl as unknown as typeof fetch,
         onDelta: () => {},

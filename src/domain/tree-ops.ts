@@ -1,5 +1,24 @@
 import type { LearnNode } from './tree'
 
+/** 同节点再追问：不带锚点，消息留在该节点顺排，不新开分支。 */
+export function appendUserMessage(
+  nodes: LearnNode[],
+  nodeId: string,
+  content: string,
+  createdAt: number,
+): LearnNode[] {
+  return nodes.map((node) => {
+    if (node.id !== nodeId) return node
+    return {
+      ...node,
+      messages: [
+        ...node.messages,
+        { id: `${node.id}-u${node.messages.length}`, role: 'user' as const, content, createdAt },
+      ],
+    }
+  })
+}
+
 /** 追加一条回答消息；节点不存在时原样返回。 */
 export function appendAnswer(
   nodes: LearnNode[],
@@ -13,17 +32,22 @@ export function appendAnswer(
       ...node,
       messages: [
         ...node.messages,
-        { id: `${node.id}-a${node.messages.length}`, role: 'assistant', content, createdAt },
+        { id: `${node.id}-a${node.messages.length}`, role: 'assistant' as const, content, createdAt },
       ],
     }
   })
 }
 
-/** 清空节点的全部回答，保留提问；重新生成回答时使用，避免叠加重复回答。 */
-export function clearAnswers(nodes: LearnNode[], nodeId: string): LearnNode[] {
+/** 清空节点的最后一条回答；重建或中止流式时用，不动其它轮次与其它节点。 */
+export function clearLastAnswer(nodes: LearnNode[], nodeId: string): LearnNode[] {
   return nodes.map((node) => {
     if (node.id !== nodeId) return node
-    return { ...node, messages: node.messages.filter((message) => message.role !== 'assistant') }
+    let lastAssistant = -1
+    node.messages.forEach((message, index) => {
+      if (message.role === 'assistant') lastAssistant = index
+    })
+    if (lastAssistant < 0) return node
+    return { ...node, messages: node.messages.filter((_, index) => index !== lastAssistant) }
   })
 }
 
@@ -44,4 +68,3 @@ export function removeSubtree(nodes: LearnNode[], nodeId: string): LearnNode[] {
   }
   return nodes.filter((node) => !doomed.has(node.id))
 }
-

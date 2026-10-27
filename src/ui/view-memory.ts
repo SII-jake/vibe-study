@@ -6,6 +6,8 @@
 export interface FocusPoint {
   fragmentIndex: number
   text: string
+  /** 锚定到节点内哪一条回答；多轮追问后用于只对那一轮高亮 */
+  messageId?: string
 }
 
 const SCROLL_PREFIX = 'vibe-study.scroll.'
@@ -54,7 +56,9 @@ export function takeFocus(nodeId: string): FocusPoint | null {
   try {
     const parsed = JSON.parse(raw) as Partial<FocusPoint>
     if (typeof parsed.fragmentIndex !== 'number' || typeof parsed.text !== 'string') return null
-    return { fragmentIndex: parsed.fragmentIndex, text: parsed.text }
+    const point: FocusPoint = { fragmentIndex: parsed.fragmentIndex, text: parsed.text }
+    if (typeof parsed.messageId === 'string') point.messageId = parsed.messageId
+    return point
   } catch {
     return null
   }

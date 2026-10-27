@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { addChildNode, createRootNode } from '../src/domain/tree'
-import { appendAnswer, clearAnswers, removeSubtree } from '../src/domain/tree-ops'
+import {
+  appendAnswer,
+  appendUserMessage,
+  clearLastAnswer,
+  removeSubtree,
+} from '../src/domain/tree-ops'
 
 const root = createRootNode({ id: 'root', topic: '什么是复利', createdAt: 1 })
 const child = addChildNode({
@@ -45,9 +50,34 @@ describe('appendAnswer', () => {
   })
 })
 
-describe('clearAnswers', () => {
-  it('只保留提问消息', () => {
-    const answered = appendAnswer(nodes, 'child', '回答正文', 9)
-    expect(clearAnswers(answered, 'child')[1]?.messages.map((m) => m.role)).toEqual(['user'])
+describe('appendUserMessage', () => {
+  it('在同节点追加一条用户消息，不新增节点', () => {
+    const continued = appendUserMessage(nodes, 'child', '那这段话反过来怎么理解', 4)
+    expect(continued).toHaveLength(3)
+    expect(continued[1]?.messages.map((m) => m.role)).toEqual(['user', 'user'])
+    expect(continued[1]?.messages[1]?.content).toBe('那这段话反过来怎么理解')
+    expect(continued[1]?.anchor?.text).toBe('利息')
+  })
+
+  it('节点不存在时原样返回', () => {
+    expect(appendUserMessage(nodes, 'missing', 'x', 4)).toEqual(nodes)
+  })
+})
+
+describe('clearLastAnswer', () => {
+  it('多轮消息只删掉最后一条回答，保留其它轮次', () => {
+    const twoRounds = appendAnswer(
+      appendUserMessage(appendAnswer(nodes, 'child', '第一轮回答', 3), 'child', '追问', 4),
+      'child',
+      '第二轮回答',
+      5,
+    )
+    const cleared = clearLastAnswer(twoRounds, 'child')
+    expect(cleared[1]?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+    expect(cleared[1]?.messages[1]?.content).toBe('第一轮回答')
+  })
+
+  it('没有回答时不动', () => {
+    expect(clearLastAnswer(nodes, 'child')).toEqual(nodes)
   })
 })

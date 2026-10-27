@@ -67,6 +67,21 @@ describe('childrenByFragment', () => {
     const grouped = childrenByFragment(nodes, 'root')
     expect(grouped.get(1)?.map((n) => n.id)).toEqual(['child'])
   })
+
+  it('传 messageId 时只归组锚定到该条回答的子节点', () => {
+    const other = addChildNode({
+      id: 'other',
+      parentId: 'root',
+      anchor: { messageId: 'root-m2', fragmentIndex: 1, text: '另一轮' },
+      question: '第二轮的问法',
+      createdAt: 4,
+    })
+    const withOther = [...nodes, other]
+    expect(childrenByFragment(withOther, 'root', 'root-m2').get(1)?.map((n) => n.id)).toEqual([
+      'other',
+    ])
+    expect(childrenByFragment(withOther, 'root', 'root-m1').get(1)).toBeUndefined()
+  })
 })
 
 describe('descendantCount', () => {

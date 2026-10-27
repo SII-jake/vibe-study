@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { descendantCount, latestAnswer, type LearnNode } from '../domain/tree'
 import type { LearnData } from '../app/store'
 
-export interface TopicsPageProps {
+export interface SessionListProps {
   data: LearnData
+  /** 当前打开会话的根节点 id，用于高亮；未打开时为 null */
+  activeRootId: string | null
   onOpen(nodeId: string): void
   onOpenSettings(): void
 }
@@ -18,7 +20,8 @@ function preview(node: LearnNode): string {
   return text.slice(0, 60)
 }
 
-export function TopicsPage({ data, onOpen, onOpenSettings }: TopicsPageProps) {
+/** 会话列表：在桌面版常驻左侧，在手机版作为可收起的抽屉复用。 */
+export function SessionList({ data, activeRootId, onOpen, onOpenSettings }: SessionListProps) {
   const [topic, setTopic] = useState('')
   const roots = data.nodes.filter((node) => node.parentId === null)
 
@@ -30,9 +33,9 @@ export function TopicsPage({ data, onOpen, onOpenSettings }: TopicsPageProps) {
   }
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <h1>学习树</h1>
+    <div className="session-list">
+      <header className="session-head">
+        <h1>vibe study</h1>
         <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="设置">
           ⚙
         </button>
@@ -68,9 +71,14 @@ export function TopicsPage({ data, onOpen, onOpenSettings }: TopicsPageProps) {
       <ul className="topic-list">
         {roots.map((node) => {
           const count = descendantCount(data.nodes, node.id)
+          const active = node.id === activeRootId
           return (
             <li key={node.id} className="topic-row">
-              <button type="button" className="topic-item" onClick={() => onOpen(node.id)}>
+              <button
+                type="button"
+                className={`topic-item ${active ? 'topic-active' : ''}`}
+                onClick={() => onOpen(node.id)}
+              >
                 <span className="topic-title">{node.messages[0]?.content}</span>
                 <span className="topic-preview">{preview(node)}</span>
                 <span className="topic-meta">{count > 0 ? `${count} 个分支` : '暂无分支'}</span>
@@ -78,7 +86,7 @@ export function TopicsPage({ data, onOpen, onOpenSettings }: TopicsPageProps) {
               <button
                 type="button"
                 className="topic-delete"
-                aria-label="删除这个学习树"
+                aria-label="删除这个主题"
                 onClick={() => {
                   if (window.confirm(`删除「${node.messages[0]?.content}」及其全部追问？`)) {
                     data.remove(node.id)

@@ -1,33 +1,16 @@
-import { useState } from 'react'
-import { isConfigured, loadConfig, saveConfig } from '../ai/settings'
+import type { ServerHealth } from '../ai/health'
+import { loadModelPreference, saveModelPreference } from '../ai/preferences'
 
 export interface SettingsPageProps {
+  health: ServerHealth
+  onRefreshHealth(): void
   onBack(): void
 }
 
-const PRESETS = [
-  { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  { label: '智谱', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-  { label: '通义', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  { label: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-]
-
-const CONFIGURED_HINT = '接口已就绪。'
-
-export function SettingsPage({ onBack }: SettingsPageProps) {
-  const [config, setConfig] = useState(loadConfig)
-  const [saved, setSaved] = useState(false)
-
-  const patch = (next: Partial<typeof config>) => {
-    setConfig({ ...config, ...next })
-    setSaved(false)
-  }
-
-  const save = () => {
-    saveConfig(config)
-    setConfig(loadConfig())
-    setSaved(true)
-  }
+/** 设置页只展示服务端能力并选择模型；密钥由服务端保管，浏览器无从访问。 */
+export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPageProps) {
+  const preferred = loadModelPreference()
+  const choices = health.models.length > 0 ? health.models : health.model ? [health.model] : []
 
   return (
     <div className="page">
@@ -42,56 +25,38 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       </header>
 
       <div className="settings">
-        <label className="field">
-          <span>接口地址</span>
-          <input
-            type="url"
-            inputMode="url"
-            value={config.baseUrl}
-            onChange={(event) => patch({ baseUrl: event.target.value })}
-          />
-        </label>
-
-        <label className="field">
-          <span>API Key</span>
-          <input
-            type="password"
-            value={config.apiKey}
-            onChange={(event) => patch({ apiKey: event.target.value })}
-          />
-        </label>
-
-        <label className="field">
-          <span>模型名</span>
-          <input
-            type="text"
-            value={config.model}
-            onChange={(event) => patch({ model: event.target.value })}
-          />
-        </label>
-
-        <div className="preset-row">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              className="btn-ghost"
-              onClick={() => patch({ baseUrl: preset.baseUrl, model: preset.model })}
-            >
-              {preset.label}
-            </button>
-          ))}
+        <div className="status-row">
+          <span className={`status-dot ${health.configured ? 'status-ok' : 'status-bad'}`} />
+          <span>{health.configured ? '服务端已就绪' : '服务端未配置模型接口'}</span>
+          <button type="button" className="btn-ghost status-refresh" onClick={onRefreshHealth}>
+            刷新
+          </button>
         </div>
 
-        <button type="button" className="btn-primary" onClick={save}>
-          保存
-        </button>
+        {choices.length > 0 && (
+          <div className="field">
+            <span>模型</span>
+            <div className="preset-row">
+              {choices.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  className={`btn-ghost ${model === (preferred || health.model) ? 'chip-active' : ''}`}
+                  onClick={() => {
+                    saveModelPreference(model)
+                    onRefreshHealth()
+                  }}
+                >
+                  {model}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
+        <p className="hint">密钥保存在服务端，浏览器与前端代码都拿不到。</p>
         <p className="hint">
-          {saved && isConfigured(config) ? CONFIGURED_HINT : '密钥只保存在这台手机的浏览器本地。'}
-        </p>
-        <p className="hint">
-          浏览器直接请求模型接口需要对方允许跨域；被拦时请用自建代理或带 CORS 的网关地址。
+          改上游地址或密钥需要编辑服务端的 server/.env，改完重启服务进程生效。
         </p>
       </div>
     </div>
