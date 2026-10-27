@@ -1,6 +1,6 @@
 {
-  "name": "学习树",
-  "short_name": "学习树",
+  "name": "vibe study",
+  "short_name": "vibe study",
   "description": "以问答树组织学习内容，就文中任意一段追问",
   "start_url": "/",
   "display": "standalone",
