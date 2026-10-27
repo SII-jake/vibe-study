@@ -6,6 +6,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.mjs'],
+  },
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:8787',
+    },
   },
 })

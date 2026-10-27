@@ -5,13 +5,17 @@
   "type": "module",
   "description": "以问答树组织学习内容的个人自用 PWA",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite",
+    "dev:api": "node server/index.mjs",
+    "start": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "dompurify": "^3.1.6",
     "idb": "^8.0.0",
     "marked": "^14.1.2",
@@ -19,6 +23,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
