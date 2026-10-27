@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#12141a" />
+    <title>vibe study</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 24px;
+        background: #12141a;
+        color: #e8eaf0;
+        font-family: -apple-system, 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+      }
+      .logo { font-size: 22px; font-weight: 600; }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        padding: 20px;
+        border: 1px solid #2e3342;
+        border-radius: 14px;
+        background: #1a1d26;
+      }
+      .server {
+        word-break: break-all;
+        color: #6c8cff;
+        font-size: 15px;
+        margin: 8px 0 16px;
+      }
+      button {
+        width: 100%;
+        min-height: 46px;
+        border: none;
+        border-radius: 12px;
+        background: #6c8cff;
+        color: #0b1020;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      button.ghost {
+        margin-top: 10px;
+        background: transparent;
+        border: 1px solid #2e3342;
+        color: #99a0b0;
+        font-weight: 400;
+      }
+      input {
+        width: 100%;
+        padding: 12px;
+        margin: 8px 0 12px;
+        border: 1px solid #2e3342;
+        border-radius: 12px;
+        background: #232734;
+        color: #e8eaf0;
+        font-size: 15px;
+      }
+      .hint { color: #99a0b0; font-size: 13px; line-height: 1.6; margin: 6px 0 0; }
+      .error { color: #e0685c; font-size: 13px; margin: 6px 0 0; display: none; }
+      #editArea { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="logo">vibe study</div>
+
+    <div class="card" id="enterArea">
+      <div>服务器</div>
+      <div class="server" id="serverText"></div>
+      <button id="enterBtn">进入</button>
+      <button class="ghost" id="editBtn">修改服务器地址</button>
+      <p class="hint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
+    </div>
+
+    <div class="card" id="editArea">
+      <div>服务器地址</div>
+      <input id="serverInput" type="url" inputmode="url" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+      <button id="saveBtn">保存并进入</button>
+      <button class="ghost" id="cancelBtn">返回</button>
+      <p class="error" id="errorText">地址无法识别，示例：https://study.sii.edu.cn 或 10.0.0.1:8787</p>
+      <p class="hint">地址只保存在这台手机本地；改服务器不用重新安装应用。</p>
+    </div>
+
+    <script src="boot.js"></script>
+    <script>
+      function byId(id) { return document.getElementById(id) }
+      var autoTimer = null
+
+      function showEnter(server) {
+        byId('serverText').textContent = server
+        byId('enterArea').style.display = 'block'
+        byId('editArea').style.display = 'none'
+
+        var left = 2
+        byId('countdown').textContent = String(left)
+        autoTimer = setInterval(function () {
+          left -= 1
+          if (left <= 0) {
+            clearInterval(autoTimer)
+            autoTimer = null
+            window.VibeBoot.enterApp(server)
+            return
+          }
+          byId('countdown').textContent = String(left)
+        }, 1000)
+      }
+
+      function stopAuto() {
+        if (autoTimer !== null) {
+          clearInterval(autoTimer)
+          autoTimer = null
+        }
+      }
+
+      byId('enterBtn').addEventListener('click', function () {
+        stopAuto()
+        window.VibeBoot.enterApp(window.VibeBoot.loadSavedServer())
+      })
+
+      byId('editBtn').addEventListener('click', function () {
+        stopAuto()
+        byId('serverInput').value = window.VibeBoot.loadSavedServer()
+        byId('errorText').style.display = 'none'
+        byId('enterArea').style.display = 'none'
+        byId('editArea').style.display = 'block'
+      })
+
+      byId('cancelBtn').addEventListener('click', function () {
+        showEnter(window.VibeBoot.loadSavedServer())
+      })
+
+      byId('saveBtn').addEventListener('click', function () {
+        var server = window.VibeBoot.normalizeServerUrl(byId('serverInput').value)
+        if (!server) {
+          byId('errorText').style.display = 'block'
+          return
+        }
+        window.VibeBoot.saveServer(server)
+        window.VibeBoot.enterApp(server)
+      })
+
+      showEnter(window.VibeBoot.loadSavedServer())
+    </script>
+  </body>
+</html>

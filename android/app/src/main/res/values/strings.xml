@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">vibe study</string>
+    <string name="title_activity_main">vibe study</string>
+    <string name="package_name">cn.sii.yjzhou.vibestudy</string>
+    <string name="custom_url_scheme">cn.sii.yjzhou.vibestudy</string>
+</resources>

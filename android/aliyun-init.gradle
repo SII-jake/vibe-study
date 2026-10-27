@@ -1,0 +1,22 @@
+// 解决 Maven Central 429：官方源被内网代理限流，必须整组替换为阿里云镜像，不能仅追加。
+// 用法：./gradlew --init-script aliyun-init.gradle <task>
+
+allprojects { project ->
+    def mirrors = {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+    }
+    buildscript {
+        repositories {
+            clear()
+            mirrors.delegate = delegate
+            mirrors()
+        }
+    }
+    repositories {
+        clear()
+        mirrors.delegate = delegate
+        mirrors()
+    }
+}
