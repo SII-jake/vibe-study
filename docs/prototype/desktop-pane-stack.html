@@ -1,0 +1,2327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vibe study · 三栏下潜原型 v2</title>
+    <style>
+      :root {
+        --bg: #0f1116;
+        --surface: #15181f;
+        --surface-2: #1c2029;
+        --surface-3: #232833;
+        --line: #282d3a;
+        --line-soft: #1f242e;
+        --text: #e9ebf1;
+        --dim: #8b93a5;
+        --dim-2: #676e7d;
+        --accent: #6c8cff;
+        --accent-soft: rgba(108, 140, 255, 0.12);
+        --mark: rgba(255, 205, 90, 0.26);
+        --slide: 340ms;
+        --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC',
+          'Segoe UI', sans-serif;
+        font-size: 15px;
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      ::selection {
+        background: var(--mark);
+      }
+
+      /* ---------------- 骨架 ---------------- */
+
+      .app {
+        display: flex;
+        height: 100vh;
+        /* 三栏弹性配比：鼠标进哪栏，哪栏就变宽，另一栏让位 */
+        --main-grow: 62;
+        --child-grow: 38;
+      }
+
+      /* 右栏没东西时收窄，把宽度还给正文 */
+      body[data-right='empty'] .app {
+        --main-grow: 72;
+        --child-grow: 28;
+      }
+
+      /* 后写优先：焦点规则覆盖空态默认值 */
+      body[data-focus='main'] .app {
+        --main-grow: 78;
+        --child-grow: 22;
+      }
+
+      body[data-focus='child'] .app {
+        --main-grow: 46;
+        --child-grow: 54;
+      }
+
+      .pane {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .pane-head {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 10px;
+        height: 50px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      /* 关键：横向裁剪，滑入的内容不会溢出到相邻栏 */
+      .pane-body {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .slide-snapshot {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      /* ---------------- 左栏：仅主题 ---------------- */
+
+      .rail {
+        flex: 0 0 auto;
+        width: 236px;
+        border-right: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .rail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 50px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .brand {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .rail-new {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 26px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 11.5px;
+      }
+
+      .rail-new:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .rail-list {
+        flex: 1;
+        min-height: 0;
+        margin: 0;
+        padding: 6px 8px 12px;
+        overflow-y: auto;
+        list-style: none;
+      }
+
+      .rail-item {
+        padding: 9px 11px;
+        border-radius: 9px;
+        cursor: pointer;
+      }
+
+      .rail-item:hover {
+        background: var(--surface-2);
+      }
+
+      .rail-item.active {
+        background: var(--accent-soft);
+        box-shadow: inset 0 0 0 1px rgba(108, 140, 255, 0.35);
+      }
+
+      .rail-title {
+        display: block;
+        overflow: hidden;
+        font-size: 13px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rail-meta {
+        display: block;
+        margin-top: 2px;
+        color: var(--dim-2);
+        font-size: 11px;
+      }
+
+      .rail-foot {
+        display: flex;
+        gap: 4px;
+        padding: 8px;
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .rail-foot button {
+        flex: 1;
+        height: 30px;
+        border: none;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--dim-2);
+        font-size: 11.5px;
+      }
+
+      .rail-foot button:hover {
+        background: var(--surface-2);
+        color: var(--text);
+      }
+
+      /* ---------------- 中栏 ---------------- */
+
+      .pane-main {
+        flex: var(--main-grow) 1 0;
+        min-width: 360px;
+        transition: flex-grow 260ms var(--ease);
+        background: var(--bg);
+      }
+
+      .stacknav {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        align-items: center;
+        gap: 2px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .stacknav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .stack-chip {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 5px;
+        max-width: 190px;
+        height: 28px;
+        padding: 0 9px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 12px;
+      }
+
+      .stack-chip .idx {
+        flex-shrink: 0;
+        color: var(--dim-2);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stack-chip .t {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .stack-chip:hover {
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      .stack-chip.current {
+        background: var(--surface-2);
+        color: var(--text);
+        font-weight: 600;
+        cursor: default;
+      }
+
+      .stack-sep {
+        flex-shrink: 0;
+        color: var(--dim-2);
+        font-size: 11px;
+      }
+
+      .depth-badge {
+        flex-shrink: 0;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--dim-2);
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .head-actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 2px;
+      }
+
+      .tbtn {
+        height: 28px;
+        padding: 0 9px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 12px;
+      }
+
+      .tbtn:hover:not(:disabled) {
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      .tbtn:disabled {
+        color: var(--dim-2);
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .main-body {
+        padding: 24px 32px 8px;
+      }
+
+      .main-inner {
+        max-width: 660px;
+        margin: 0 auto;
+        will-change: transform;
+      }
+
+      .anchor-quote {
+        margin: 0 0 18px;
+        padding: 9px 13px;
+        border-left: 2px solid var(--accent);
+        border-radius: 0 8px 8px 0;
+        background: var(--accent-soft);
+      }
+
+      .anchor-quote .lab {
+        color: var(--accent);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+      }
+
+      .anchor-quote p {
+        margin: 3px 0 0;
+        color: var(--dim);
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+
+      h1.question {
+        margin: 0 0 16px;
+        font-size: 21px;
+        font-weight: 600;
+        line-height: 1.45;
+      }
+
+      .frag {
+        position: relative;
+        margin: 0 0 14px;
+      }
+
+      .frag::after {
+        content: '';
+        position: absolute;
+        top: 4px;
+        bottom: 4px;
+        left: -15px;
+        width: 2px;
+        border-radius: 2px;
+        background: transparent;
+        transition: background 0.12s;
+      }
+
+      .frag:hover::after {
+        background: var(--accent);
+      }
+
+      .frag-act {
+        position: absolute;
+        top: 0;
+        left: -41px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface-2);
+        color: var(--dim);
+        font-size: 14px;
+        line-height: 1;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+
+      .frag:hover .frag-act {
+        opacity: 1;
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .frag p {
+        margin: 0;
+      }
+
+      .frag ul,
+      .frag ol {
+        margin: 0;
+        padding-left: 21px;
+      }
+
+      .frag li {
+        margin: 2px 0;
+      }
+
+      .frag pre {
+        margin: 0;
+        padding: 11px 13px;
+        border-radius: 9px;
+        background: var(--surface-2);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.6;
+        overflow-x: auto;
+      }
+
+      .frag b {
+        color: #cfd8ff;
+        font-weight: 600;
+      }
+
+      .cards {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        margin: 7px 0 0;
+      }
+
+      .card {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        padding: 8px 11px;
+        border: 1px solid var(--line);
+        border-left: 2px solid var(--accent);
+        border-radius: 9px;
+        background: var(--surface);
+        text-align: left;
+      }
+
+      .card:hover {
+        background: var(--surface-2);
+      }
+
+      .card-q {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        font-size: 12.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .card-meta {
+        flex-shrink: 0;
+        color: var(--dim-2);
+        font-size: 10.5px;
+      }
+
+      .card-arrow {
+        flex-shrink: 0;
+        color: var(--dim-2);
+        font-size: 13px;
+      }
+
+      .composer {
+        flex-shrink: 0;
+        padding: 8px 32px 16px;
+      }
+
+      .composer-inner {
+        max-width: 660px;
+        margin: 0 auto;
+      }
+
+      .input-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 7px 7px 7px 13px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+      }
+
+      .input-row:focus-within {
+        border-color: var(--accent);
+      }
+
+      .input-row textarea {
+        flex: 1;
+        max-height: 120px;
+        padding: 3px 0;
+        border: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 13.5px;
+        line-height: 1.6;
+        resize: none;
+      }
+
+      .input-row textarea:focus {
+        outline: none;
+      }
+
+      .input-row textarea::placeholder {
+        color: var(--dim-2);
+      }
+
+      .send {
+        flex-shrink: 0;
+        height: 30px;
+        padding: 0 11px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #0b1020;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .send:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      .composer-hint {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        color: var(--dim-2);
+        font-size: 10.5px;
+      }
+
+      /* ---------------- 开新对话：输入框在中栏 ---------------- */
+
+      body[data-mode='new-topic'] .stacknav,
+      body[data-mode='new-topic'] .depth-badge,
+      body[data-mode='new-topic'] .head-actions,
+      body[data-mode='new-topic'] .composer {
+        display: none;
+      }
+
+      .new-topic {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: 100%;
+        max-width: 580px;
+        margin: 0 auto;
+        padding: 0 0 60px;
+      }
+
+      .new-topic h2 {
+        margin: 0 0 6px;
+        font-size: 23px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .new-topic .sub {
+        margin: 0 0 20px;
+        color: var(--dim);
+        font-size: 13.5px;
+      }
+
+      .new-topic .box {
+        display: flex;
+        align-items: flex-end;
+        gap: 9px;
+        padding: 11px 11px 11px 15px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: var(--surface);
+      }
+
+      .new-topic .box:focus-within {
+        border-color: var(--accent);
+      }
+
+      .new-topic textarea {
+        flex: 1;
+        min-height: 54px;
+        max-height: 180px;
+        padding: 2px 0;
+        border: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 14.5px;
+        line-height: 1.6;
+        resize: none;
+      }
+
+      .new-topic textarea:focus {
+        outline: none;
+      }
+
+      .new-topic textarea::placeholder {
+        color: var(--dim-2);
+      }
+
+      .new-topic .hintline {
+        margin: 7px 0 0;
+        color: var(--dim-2);
+        font-size: 10.5px;
+      }
+
+      .new-topic .examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 18px;
+      }
+
+      .new-topic .examples button {
+        height: 28px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 12px;
+      }
+
+      .new-topic .examples button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      /* ---------------- 右栏 ---------------- */
+
+      .pane-child {
+        flex: var(--child-grow) 1 0;
+        min-width: 264px;
+        transition: flex-grow 260ms var(--ease);
+        border-left: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .child-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 50px;
+        padding: 0 12px 0 14px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .child-head .lab {
+        flex-shrink: 0;
+        color: var(--dim-2);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+      }
+
+      .child-head .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 12.5px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .draft-badge {
+        flex-shrink: 0;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--surface-3);
+        color: var(--dim-2);
+        font-size: 10px;
+      }
+
+      .child-actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 2px;
+      }
+
+      .child-body {
+        padding: 16px 16px 20px;
+      }
+
+      .child-body .anchor-quote {
+        margin-bottom: 14px;
+        padding: 8px 11px;
+      }
+
+      .child-body .anchor-quote p {
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: 12px;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+      }
+
+      .child-body h2.q {
+        margin: 0 0 12px;
+        font-size: 15.5px;
+        font-weight: 600;
+        line-height: 1.5;
+      }
+
+      .child-body .frag {
+        margin-bottom: 11px;
+        font-size: 13.5px;
+        line-height: 1.75;
+      }
+
+      .child-body .frag::after,
+      .child-body .frag-act {
+        display: none;
+      }
+
+      .child-body .frag pre {
+        font-size: 12px;
+      }
+
+      .child-body .cards {
+        margin-top: 6px;
+      }
+
+      .child-body .card {
+        padding: 7px 9px;
+      }
+
+      .child-body .card-q {
+        font-size: 12px;
+      }
+
+      .child-empty {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding: 22px 16px 20px;
+      }
+
+      .child-empty .glyph {
+        margin-bottom: 8px;
+        color: var(--dim-2);
+        font-size: 20px;
+        text-align: center;
+      }
+
+      .child-empty .lead {
+        margin: 0 0 4px;
+        color: var(--dim-2);
+        font-size: 12px;
+        line-height: 1.75;
+        text-align: center;
+      }
+
+      .child-empty kbd {
+        padding: 1px 5px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 10.5px;
+      }
+
+      .draft-store {
+        margin-top: 22px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .draft-store h3 {
+        margin: 0 0 8px;
+        color: var(--dim-2);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.09em;
+      }
+
+      .draft-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 7px 8px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      .draft-row:hover {
+        background: var(--surface-2);
+      }
+
+      .draft-row-main {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .draft-row-q {
+        display: block;
+        overflow: hidden;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .draft-row-a {
+        display: block;
+        overflow: hidden;
+        margin-top: 2px;
+        color: var(--dim-2);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .draft-row-x {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        border: none;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--dim-2);
+        font-size: 12px;
+        line-height: 1;
+      }
+
+      .draft-row-x:hover {
+        background: var(--surface-3);
+        color: #e0685c;
+      }
+
+      .draft {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .draft textarea {
+        width: 100%;
+        min-height: 84px;
+        padding: 10px 11px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        font-size: 13.5px;
+        line-height: 1.6;
+        resize: vertical;
+      }
+
+      .draft textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .save-note {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--dim-2);
+        font-size: 10.5px;
+      }
+
+      .save-note .dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #4ec98a;
+      }
+
+      .draft-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 7px;
+      }
+
+      .btn-ghost {
+        height: 30px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 12.5px;
+      }
+
+      .btn-ghost:hover {
+        color: var(--text);
+      }
+
+      .send-sm {
+        height: 30px;
+        padding: 0 13px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #0b1020;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .send-sm:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      .stream-text {
+        font-size: 13.5px;
+        line-height: 1.75;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .caret {
+        display: inline-block;
+        width: 6px;
+        height: 14px;
+        margin-left: 2px;
+        background: var(--accent);
+        vertical-align: -2px;
+        animation: blink 1s steps(2) infinite;
+      }
+
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0;
+        }
+      }
+
+      /* ---------------- 选区工具条 ---------------- */
+
+      .sel-toolbar {
+        position: fixed;
+        z-index: 300;
+        display: none;
+        gap: 2px;
+        padding: 3px;
+        border: 1px solid #333a4a;
+        border-radius: 9px;
+        background: #0b0e14;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+        transform: translate(-50%, -100%);
+      }
+
+      .sel-toolbar.show {
+        display: flex;
+        animation: pop 0.12s ease-out;
+      }
+
+      @keyframes pop {
+        from {
+          transform: translate(-50%, -92%) scale(0.94);
+          opacity: 0;
+        }
+      }
+
+      .sel-toolbar button {
+        height: 26px;
+        padding: 0 10px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .sel-toolbar button:hover {
+        background: var(--accent);
+        color: #0b1020;
+      }
+
+      /* ---------------- 提示 ---------------- */
+
+      .toast {
+        position: fixed;
+        bottom: 56px;
+        left: 50%;
+        z-index: 190;
+        padding: 6px 14px;
+        border: 1px solid rgba(108, 140, 255, 0.45);
+        border-radius: 999px;
+        background: rgba(20, 26, 40, 0.96);
+        color: #cfd8ff;
+        font-size: 11.5px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateX(-50%) translateY(6px);
+        transition: opacity 0.16s, transform 0.16s;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .devbar {
+        position: fixed;
+        bottom: 12px;
+        left: 50%;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(11, 14, 20, 0.94);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+        transform: translateX(-50%);
+        backdrop-filter: blur(8px);
+      }
+
+      .devbar .tag {
+        padding: 0 8px 0 4px;
+        color: var(--dim-2);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+
+      .devbar button {
+        height: 24px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      .devbar button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body data-right="empty">
+    <div class="app">
+      <aside class="pane rail">
+        <div class="rail-head">
+          <h1 class="brand">vibe study</h1>
+          <button class="rail-new" id="newTopic">＋ 新主题</button>
+        </div>
+        <ul class="rail-list" id="railList"></ul>
+        <div class="rail-foot">
+          <button>⚙ 设置</button>
+          <button>⇪ 导入 / 导出</button>
+        </div>
+      </aside>
+
+      <main class="pane pane-main" data-pane-kind="main">
+        <header class="pane-head">
+          <nav class="stacknav" id="stacknav"></nav>
+          <span class="depth-badge" id="depthBadge"></span>
+          <div class="head-actions">
+            <button class="tbtn" id="backBtn" title="回到上一级">↑ 上一级</button>
+          </div>
+        </header>
+        <div class="pane-body main-body" data-pane="main" id="mainBody">
+          <div class="main-inner" id="mainInner"></div>
+        </div>
+        <div class="composer">
+          <div class="composer-inner">
+            <div class="input-row">
+              <textarea
+                id="composerInput"
+                rows="1"
+                placeholder="在当前对话里继续问…（不开支线）"
+              ></textarea>
+              <button class="send" id="composerSend">提问</button>
+            </div>
+            <div class="composer-hint">
+              <span>选中任意一段 → 点弹出来的按钮，右栏才展开</span>
+              <span>⌘⏎ 发送</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <section class="pane pane-child" data-pane-kind="child">
+        <header class="child-head">
+          <span class="lab">子对话</span>
+          <span class="t" id="childTitle">尚未展开</span>
+          <span class="draft-badge" id="draftBadge" style="display: none"></span>
+          <div class="child-actions" id="childActions"></div>
+        </header>
+        <div class="pane-body child-body" data-pane="child" id="childBody"></div>
+      </section>
+    </div>
+
+    <div class="sel-toolbar" id="selToolbar">
+      <button id="selAsk">就这段提问</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="devbar">
+      <span class="tag">原型 v2</span>
+      <button id="demoDive">演示：连续下潜三层</button>
+      <button id="demoReset">重置</button>
+    </div>
+
+    <script>
+      /* ============================================================
+         数据
+         ============================================================ */
+
+      const esc = (s) =>
+        String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+      const plain = (html) => {
+        const el = document.createElement('div')
+        el.innerHTML = html
+        return (el.textContent || '').replace(/\s+/g, ' ').trim()
+      }
+
+      const frag = (html, kind = 'p') => ({ kind, html, text: plain(html) })
+
+      const NODES = {}
+      const ROOTS = []
+
+      function addNode(spec) {
+        const node = {
+          id: spec.id,
+          parentId: spec.parentId || null,
+          anchor: spec.anchor || null,
+          question: spec.question,
+          fragments: spec.fragments || [],
+          turns: spec.turns || [],
+          /** 首轮回答的流式占位；只在生成期间存在，完成后落成 fragments */
+          streaming: spec.streaming || null,
+        }
+        NODES[node.id] = node
+        if (!node.parentId) ROOTS.push(node.id)
+        return node
+      }
+
+      addNode({
+        id: 'root',
+        question: '什么是复利？',
+        fragments: [
+          frag('复利是指把每一期产生的利息计入本金，下一期按新的本金继续计息。'),
+          frag('利息本身也产生利息，这是它与单利的根本区别。'),
+          frag(
+            '<li>单利：每期只对本金计息，利息不滚入本金。</li><li>复利：每期把利息滚入本金，计息基数逐期变大。</li>',
+            'ul',
+          ),
+          frag('用公式表达，本金 P、每期利率 r、经过 n 期后：'),
+          frag('单利：F = P × (1 + r × n)\n复利：F = P × (1 + r)^n', 'code'),
+          frag('举个具体例子：本金 1 万元，年化 10%，30 年后单利约为 4 万元，复利约为 17.4 万元。'),
+        ],
+      })
+
+      addNode({
+        id: 'a1',
+        parentId: 'root',
+        anchor: '利息本身也产生利息，这是它与单利的根本区别',
+        question: '那和单利的差别在数学上怎么描述？',
+        fragments: [
+          frag('两者在数学上只差一个指数位置。'),
+          frag('单利是<b>线性函数</b>，随 n 线性增长；复利是幂函数，随 n 指数增长。'),
+          frag('在 r 很小的近似下，(1 + r)^n ≈ 1 + r × n，所以短期看不出差别；期数一多，幂函数就拉开了距离。'),
+        ],
+      })
+
+      addNode({
+        id: 'b1',
+        parentId: 'a1',
+        anchor: '(1 + r)^n ≈ 1 + r × n',
+        question: '年化收益率怎么换算成连续复利？',
+        fragments: [
+          frag('年化收益率 r 与连续复利收益率 R 的关系是 R = ln(1 + r)。'),
+          frag('年化 10% 对应连续复利约 9.53%。'),
+          frag('连续复利的好处是可加：两段连续复利收益直接相加，而普通年化收益率要做乘除。'),
+        ],
+      })
+
+      addNode({
+        id: 'c1',
+        parentId: 'b1',
+        anchor: '连续复利的好处是可加',
+        question: '为什么可加？',
+        fragments: [
+          frag('因为对数把乘法变成加法：ln(a·b) = ln a + ln b。'),
+          frag('持有两段得到的总收益是 (1+r₁)(1+r₂)，取对数后正好是两段连续复利之和。'),
+          frag('这也是为什么在连续时间模型里，收益率可以直接做线性累加。'),
+        ],
+      })
+
+      addNode({
+        id: 'a2',
+        parentId: 'root',
+        anchor: '利息本身也产生利息',
+        question: '长期看，时间的影响比收益率更大吗？',
+        fragments: [
+          frag('是的，期数的影响通常大于收益率。'),
+          frag('因为收益率进入底数、期数进入指数，指数增长对期数的敏感度更高。'),
+          frag('把 1 万元按年化 7% 分别放 20 年和 40 年：前者约 3.87 万元，后者约 14.97 万元。多一倍时间，结果接近四倍。'),
+        ],
+      })
+
+      const node = (id) => NODES[id] || null
+      const childrenOf = (id) => Object.values(NODES).filter((n) => n.parentId === id)
+
+      function pathTo(id) {
+        const path = []
+        let cur = node(id)
+        while (cur) {
+          path.unshift(cur)
+          cur = cur.parentId ? node(cur.parentId) : null
+        }
+        return path
+      }
+
+      function descendantCount(id) {
+        let total = 0
+        const stack = childrenOf(id)
+        while (stack.length) {
+          const cur = stack.pop()
+          total += 1
+          stack.push(...childrenOf(cur.id))
+        }
+        return total
+      }
+
+      let seq = 0
+      const nextId = () => `n${++seq}`
+
+      /* ============================================================
+         草稿存储：未提交的问题落到 localStorage
+         ============================================================ */
+
+      const DRAFT_KEY = 'vibe-study.drafts'
+      const SESSION_KEY = 'vibe-study.session'
+
+      function readJson(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key)
+          return raw ? JSON.parse(raw) : fallback
+        } catch {
+          return fallback
+        }
+      }
+
+      function writeJson(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value))
+        } catch {
+          /* 隐私模式下写入被拒：草稿只在内存里存活 */
+        }
+      }
+
+      let DRAFTS = readJson(DRAFT_KEY, {})
+
+      const draftKeyOf = (parentId, anchorText) => `${parentId}::${anchorText}`
+
+      function putDraft(key, patch) {
+        const cur = DRAFTS[key] || {}
+        DRAFTS[key] = { ...cur, ...patch, updatedAt: Date.now() }
+        writeJson(DRAFT_KEY, DRAFTS)
+      }
+
+      function dropDraft(key) {
+        delete DRAFTS[key]
+        writeJson(DRAFT_KEY, DRAFTS)
+      }
+
+      /* ============================================================
+         状态
+         ============================================================ */
+
+      const state = {
+        rootId: 'root',
+        stack: ['root'],
+        rightNodeId: null,
+        draftKey: null,
+        /** 'read' 读已有对话；'new-topic' 在中栏起一个新对话 */
+        mode: 'read',
+      }
+
+      const midId = () => state.stack[state.stack.length - 1]
+      const mid = () => node(midId())
+
+      const saved = readJson(SESSION_KEY, null)
+      if (saved && node(saved.rootId) && Array.isArray(saved.stack) && saved.stack.every(node)) {
+        state.rootId = saved.rootId
+        state.stack = saved.stack
+        state.rightNodeId = saved.rightNodeId && node(saved.rightNodeId) ? saved.rightNodeId : null
+        state.draftKey = saved.draftKey && DRAFTS[saved.draftKey] ? saved.draftKey : null
+        state.mode = saved.mode === 'new-topic' ? 'new-topic' : 'read'
+      }
+
+      function persistSession() {
+        writeJson(SESSION_KEY, {
+          rootId: state.rootId,
+          stack: state.stack,
+          rightNodeId: state.rightNodeId,
+          draftKey: state.draftKey,
+          mode: state.mode,
+        })
+      }
+
+      /* ============================================================
+         渲染
+         ============================================================ */
+
+      const $ = (id) => document.getElementById(id)
+
+      let lastRightKey = null
+
+      function paint() {
+        renderRail()
+        renderStackNav()
+        renderMain()
+        renderChild()
+        document.body.dataset.right = state.draftKey || state.rightNodeId ? 'open' : 'empty'
+        document.body.dataset.mode = state.mode
+        persistSession()
+      }
+
+      function renderRail() {
+        const list = $('railList')
+        list.textContent = ''
+        for (const id of ROOTS) {
+          const root = node(id)
+          if (!root) continue
+          const li = document.createElement('li')
+          li.className = 'rail-item' + (state.rootId === id ? ' active' : '')
+
+          const title = document.createElement('span')
+          title.className = 'rail-title'
+          title.textContent = root.question
+
+          const meta = document.createElement('span')
+          meta.className = 'rail-meta'
+          const branchCount = childrenOf(id).length
+          const all = descendantCount(id)
+          meta.textContent = branchCount > 0 ? `${branchCount} 个分支 · ${all} 条追问` : '暂无分支'
+
+          li.append(title, meta)
+          li.addEventListener('click', () => {
+            if (state.rootId === id) return
+            state.rootId = id
+            state.stack = [id]
+            state.rightNodeId = null
+            state.draftKey = null
+            paint()
+          })
+          list.append(li)
+        }
+      }
+
+      function renderStackNav() {
+        const nav = $('stacknav')
+        nav.textContent = ''
+
+        state.stack.forEach((id, index) => {
+          const cur = node(id)
+          if (!cur) return
+          if (index > 0) {
+            const sep = document.createElement('span')
+            sep.className = 'stack-sep'
+            sep.textContent = '›'
+            nav.append(sep)
+          }
+
+          const isCurrent = index === state.stack.length - 1
+          const chip = document.createElement('button')
+          chip.className = 'stack-chip' + (isCurrent ? ' current' : '')
+          chip.disabled = isCurrent
+          chip.title = cur.question
+          if (!isCurrent) chip.addEventListener('click', () => goToDepth(index))
+
+          const idx = document.createElement('span')
+          idx.className = 'idx'
+          idx.textContent = String(index + 1)
+
+          const t = document.createElement('span')
+          t.className = 't'
+          t.textContent = cur.question
+
+          chip.append(idx, t)
+          nav.append(chip)
+        })
+
+        $('depthBadge').textContent = `第 ${state.stack.length} 层`
+        $('backBtn').disabled = state.stack.length <= 1
+      }
+
+      function renderNodeBody(container, cur, opts) {
+        const { pane, showFragAct, mainQuestion } = opts
+
+        if (cur.anchor) {
+          const quote = document.createElement('div')
+          quote.className = 'anchor-quote'
+          const lab = document.createElement('span')
+          lab.className = 'lab'
+          lab.textContent = '这段原文'
+          const p = document.createElement('p')
+          p.textContent = cur.anchor
+          quote.append(lab, p)
+          container.append(quote)
+        }
+
+        const q = document.createElement(mainQuestion ? 'h1' : 'h2')
+        q.className = mainQuestion ? 'question' : 'q'
+        q.textContent = cur.question
+        container.append(q)
+
+        cur.fragments.forEach((f) => {
+          const wrap = document.createElement('div')
+          wrap.className = 'frag'
+          wrap.dataset.fragmentText = f.text
+
+          if (f.kind === 'ul' || f.kind === 'ol') {
+            const list = document.createElement(f.kind)
+            list.innerHTML = f.html
+            wrap.append(list)
+          } else if (f.kind === 'code') {
+            const pre = document.createElement('pre')
+            pre.textContent = f.html
+            wrap.append(pre)
+          } else {
+            const p = document.createElement('p')
+            p.innerHTML = f.html
+            wrap.append(p)
+          }
+
+          if (showFragAct) {
+            const act = document.createElement('button')
+            act.className = 'frag-act'
+            act.type = 'button'
+            act.textContent = '＋'
+            act.title = '就这一段提问'
+            act.addEventListener('click', (event) => {
+              event.stopPropagation()
+              askFrom(pane, f.text)
+            })
+            wrap.append(act)
+          }
+
+          const kids = childrenOf(cur.id).filter((child) => child.anchor === f.text)
+          if (kids.length > 0) {
+            const cards = document.createElement('div')
+            cards.className = 'cards'
+            for (const child of kids) {
+              const card = document.createElement('button')
+              card.className = 'card'
+              card.type = 'button'
+
+              const cq = document.createElement('span')
+              cq.className = 'card-q'
+              cq.textContent = child.question
+
+              const cm = document.createElement('span')
+              cm.className = 'card-meta'
+              const grand = childrenOf(child.id).length
+              cm.textContent = grand > 0 ? `${grand} 个分支` : '已问'
+
+              const arrow = document.createElement('span')
+              arrow.className = 'card-arrow'
+              arrow.textContent = '›'
+
+              card.append(cq, cm, arrow)
+              card.addEventListener('click', () => openChild(child.id, pane))
+              cards.append(card)
+            }
+            wrap.append(cards)
+          }
+
+          container.append(wrap)
+        })
+
+        for (const turn of cur.turns || []) {
+          const ask = document.createElement('div')
+          ask.className = 'anchor-quote turn-ask'
+          const lab = document.createElement('span')
+          lab.className = 'lab'
+          lab.textContent = '我又问'
+          const p = document.createElement('p')
+          p.textContent = turn.question
+          ask.append(lab, p)
+          container.append(ask)
+
+          if (turn.phase === 'stream') {
+            const st = document.createElement('div')
+            st.className = 'stream-text'
+            st.id = 'turnStream'
+            st.textContent = turn.text
+            const caret = document.createElement('span')
+            caret.className = 'caret'
+            st.append(caret)
+            container.append(st)
+          } else {
+            for (const f of turn.fragments) {
+              const wrap = document.createElement('div')
+              wrap.className = 'frag'
+              const p = document.createElement('p')
+              p.innerHTML = f.html
+              wrap.append(p)
+              container.append(wrap)
+            }
+          }
+        }
+
+        // 首轮回答生成中：问题已经在标题里，这里只接正文，不再重复「我又问」
+        if (cur.streaming) {
+          const st = document.createElement('div')
+          st.className = 'stream-text'
+          st.id = 'turnStream'
+          st.textContent = cur.streaming.text || ''
+          const caret = document.createElement('span')
+          caret.className = 'caret'
+          st.append(caret)
+          container.append(st)
+        }
+      }
+
+      function renderMain() {
+        const cur = mid()
+        const inner = $('mainInner')
+        inner.textContent = ''
+        if (state.mode === 'new-topic') {
+          renderNewTopic(inner)
+          return
+        }
+        if (!cur) return
+        renderNodeBody(inner, cur, { pane: 'main', showFragAct: true, mainQuestion: true })
+      }
+
+      /** 中栏起新对话：输入框就在这里，不先建空节点。 */
+      function renderNewTopic(inner) {
+        const wrap = document.createElement('div')
+        wrap.className = 'new-topic'
+
+        const h = document.createElement('h2')
+        h.textContent = '想学点什么？'
+
+        const sub = document.createElement('p')
+        sub.className = 'sub'
+        sub.textContent = '开一个新主题。回答里的任意一段都能单独展开成一条支线。'
+
+        const box = document.createElement('div')
+        box.className = 'box'
+
+        const ta = document.createElement('textarea')
+        ta.id = 'newTopicInput'
+        ta.rows = 2
+        ta.placeholder = '例如：为什么顺风骑车也感觉吃力？'
+
+        const send = document.createElement('button')
+        send.className = 'send'
+        send.textContent = '开始'
+        send.disabled = true
+
+        ta.addEventListener('input', () => {
+          send.disabled = ta.value.trim() === ''
+        })
+        ta.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            startTopic()
+          }
+          if (event.key === 'Escape') {
+            exitNewTopic()
+          }
+        })
+        send.addEventListener('click', startTopic)
+
+        box.append(ta, send)
+
+        const hint = document.createElement('p')
+        hint.className = 'hintline'
+        hint.textContent = 'Enter 开始，Shift+Enter 换行，Esc 取消'
+
+        wrap.append(h, sub, box, hint)
+
+        // 示例：点一下填进输入框，不直接提交
+        const examples = document.createElement('div')
+        examples.className = 'examples'
+        for (const text of ['复利和时间的关系', 'Transformer 的注意力怎么算', '为什么咖啡因会让人睡不着']) {
+          const chip = document.createElement('button')
+          chip.textContent = text
+          chip.addEventListener('click', () => {
+            ta.value = text
+            send.disabled = false
+            ta.focus()
+          })
+          examples.append(chip)
+        }
+        wrap.append(examples)
+
+        inner.append(wrap)
+        requestAnimationFrame(() => ta.focus())
+      }
+
+      function enterNewTopic() {
+        state.mode = 'new-topic'
+        state.rightNodeId = null
+        state.draftKey = null
+        focusPane = null
+        delete document.body.dataset.focus
+        paint()
+      }
+
+      function exitNewTopic() {
+        state.mode = 'read'
+        paint()
+      }
+
+      /** 真正建主题：先落节点、再起流式，中栏立刻切到新对话 */
+      function startTopic() {
+        const ta = $('newTopicInput')
+        const text = (ta?.value || '').trim()
+        if (!text) return
+
+        const id = nextId()
+        addNode({
+          id,
+          question: text,
+          fragments: [],
+          // 首轮回答只走 streaming，不进 turns：问题已经在标题里
+          streaming: { text: '' },
+        })
+
+        state.rootId = id
+        state.stack = [id]
+        state.rightNodeId = null
+        state.draftKey = null
+        state.mode = 'read'
+        paint()
+
+        const el = $('turnStream')
+        streamInto(el, buildAnswerText(text, null), () => {
+          const cur = node(id)
+          if (!cur) return
+          cur.streaming = null
+          cur.fragments = buildFragments(text, null)
+          paint()
+        })
+      }
+
+      function renderChild() {
+        const body = $('childBody')
+        const title = $('childTitle')
+        const actions = $('childActions')
+        const badge = $('draftBadge')
+        body.textContent = ''
+        actions.textContent = ''
+        badge.style.display = 'none'
+
+        const draftCount = Object.keys(DRAFTS).length
+
+        if (state.draftKey) {
+          const draft = DRAFTS[state.draftKey]
+          if (draft) {
+            title.textContent = '新支线'
+            renderDraft(body, state.draftKey, draft)
+
+            const close = document.createElement('button')
+            close.className = 'tbtn'
+            close.textContent = '✕'
+            close.title = '收起（草稿保留）'
+            close.addEventListener('click', () => {
+              state.draftKey = null
+              paint()
+              toast('草稿已保存')
+            })
+            actions.append(close)
+            return
+          }
+        }
+
+        if (state.rightNodeId) {
+          const cur = node(state.rightNodeId)
+          if (cur) {
+            title.textContent = cur.question
+            if (draftCount > 0) {
+              badge.style.display = ''
+              badge.textContent = `${draftCount} 份草稿`
+            }
+
+            const promote = document.createElement('button')
+            promote.className = 'tbtn'
+            promote.textContent = '设为当前'
+            promote.title = '把这条支线移到中栏继续读'
+            promote.addEventListener('click', promoteRight)
+            actions.append(promote)
+
+            const close = document.createElement('button')
+            close.className = 'tbtn'
+            close.textContent = '✕'
+            close.title = '收起子对话'
+            close.addEventListener('click', () => {
+              state.rightNodeId = null
+              paint()
+            })
+            actions.append(close)
+
+            renderNodeBody(body, cur, { pane: 'child', showFragAct: false, mainQuestion: false })
+            return
+          }
+        }
+
+        title.textContent = '尚未展开'
+        renderChildEmpty(body, draftCount)
+      }
+
+      function renderChildEmpty(body, draftCount) {
+        const wrap = document.createElement('div')
+        wrap.className = 'child-empty'
+
+        const glyph = document.createElement('div')
+        glyph.className = 'glyph'
+        glyph.textContent = '⤷'
+
+        const lead = document.createElement('p')
+        lead.className = 'lead'
+        lead.innerHTML =
+          '在中栏回答里选中一段文字，<br />点弹出来的按钮，这里才展开。'
+
+        const tip = document.createElement('p')
+        tip.className = 'lead'
+        tip.style.marginTop = '10px'
+        tip.innerHTML = '也可以点段落左侧的 <kbd>＋</kbd>'
+
+        wrap.append(glyph, lead, tip)
+
+        if (draftCount > 0) {
+          wrap.append(renderDraftStore())
+        }
+
+        body.append(wrap)
+      }
+
+      function renderDraftStore() {
+        const box = document.createElement('div')
+        box.className = 'draft-store'
+
+        const h = document.createElement('h3')
+        h.textContent = '未提交的草稿'
+        box.append(h)
+
+        const entries = Object.entries(DRAFTS).sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+        for (const [key, draft] of entries) {
+          const row = document.createElement('div')
+          row.className = 'draft-row'
+
+          const main = document.createElement('div')
+          main.className = 'draft-row-main'
+
+          const q = document.createElement('span')
+          q.className = 'draft-row-q'
+          q.textContent = draft.question.trim() || '（还没写问题）'
+
+          const a = document.createElement('span')
+          a.className = 'draft-row-a'
+          a.textContent = draft.anchorText
+
+          main.append(q, a)
+
+          const x = document.createElement('button')
+          x.className = 'draft-row-x'
+          x.textContent = '×'
+          x.title = '删除这份草稿'
+          x.addEventListener('click', (event) => {
+            event.stopPropagation()
+            dropDraft(key)
+            if (state.draftKey === key) state.draftKey = null
+            paint()
+          })
+
+          row.append(main, x)
+          row.addEventListener('click', () => {
+            state.rightNodeId = null
+            state.draftKey = key
+            paint()
+          })
+          box.append(row)
+        }
+        return box
+      }
+
+      function renderDraft(body, key, draft) {
+        const wrap = document.createElement('div')
+        wrap.className = 'draft'
+
+        const quote = document.createElement('div')
+        quote.className = 'anchor-quote'
+        const lab = document.createElement('span')
+        lab.className = 'lab'
+        lab.textContent = '就这段提问'
+        const p = document.createElement('p')
+        p.textContent = draft.anchorText
+        quote.append(lab, p)
+        wrap.append(quote)
+
+        if (draft.phase === 'stream') {
+          const st = document.createElement('div')
+          st.className = 'stream-text'
+          st.id = 'draftStream'
+          st.textContent = draft.streamText || ''
+          wrap.append(st)
+          body.append(wrap)
+          return
+        }
+
+        const ta = document.createElement('textarea')
+        ta.id = 'draftInput'
+        ta.placeholder = '针对这一段，你想问什么？'
+        ta.value = draft.question || ''
+
+        const note = document.createElement('div')
+        note.className = 'save-note'
+        const dot = document.createElement('span')
+        dot.className = 'dot'
+        const noteText = document.createElement('span')
+        noteText.textContent = '输入即自动保存，切走或刷新都不会丢'
+        note.append(dot, noteText)
+
+        const actions = document.createElement('div')
+        actions.className = 'draft-actions'
+
+        const cancel = document.createElement('button')
+        cancel.className = 'btn-ghost'
+        cancel.textContent = '收起'
+        cancel.addEventListener('click', () => {
+          state.draftKey = null
+          paint()
+          toast('草稿已保存')
+        })
+
+        const sendBtn = document.createElement('button')
+        sendBtn.className = 'send-sm'
+        sendBtn.textContent = '提问'
+        sendBtn.disabled = (draft.question || '').trim() === ''
+        sendBtn.addEventListener('click', submitDraft)
+
+        ta.addEventListener('input', () => {
+          putDraft(key, { question: ta.value })
+          sendBtn.disabled = ta.value.trim() === ''
+        })
+        ta.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            submitDraft()
+          }
+        })
+
+        actions.append(cancel, sendBtn)
+        wrap.append(ta, note, actions)
+        body.append(wrap)
+        requestAnimationFrame(() => ta.focus())
+      }
+
+      /* ============================================================
+         滑移动画：整条轨道向左/右移动一格
+         ============================================================ */
+
+      const SLIDE_MS = 340
+      const EASE = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
+
+      function snapshotMain() {
+        const host = $('mainBody')
+        const snap = host.cloneNode(true)
+        snap.removeAttribute('id')
+        snap.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+        snap.classList.add('slide-snapshot')
+        return { el: snap, scrollTop: host.scrollTop }
+      }
+
+      /**
+       * mode:
+       *   'dive' 右栏内容沉入中栏，轨道整体左移一格
+       *   'back' 回到上层，轨道整体右移一格
+       *   'none' 不改中栏内容
+       */
+      function withSlide(mutate, mode = 'none') {
+        const mainBody = $('mainBody')
+        const childBody = $('childBody')
+        const mainRect = mainBody.getBoundingClientRect()
+        const childRect = childBody.getBoundingClientRect()
+        // 两栏左边缘距离 = 轨道需要移动的距离
+        const dx = Math.max(140, Math.round(childRect.left - mainRect.left))
+        const snap = mode === 'none' ? null : snapshotMain()
+
+        mutate()
+        paint()
+
+        const inner = $('mainInner')
+        if (mode === 'dive') {
+          inner.animate(
+            [
+              { transform: `translateX(${dx}px)`, opacity: 0.3 },
+              { transform: 'translateX(0px)', opacity: 1 },
+            ],
+            { duration: SLIDE_MS, easing: EASE },
+          )
+        } else if (mode === 'back') {
+          inner.animate(
+            [
+              { transform: `translateX(${-dx}px)`, opacity: 0.3 },
+              { transform: 'translateX(0px)', opacity: 1 },
+            ],
+            { duration: SLIDE_MS, easing: EASE },
+          )
+        }
+
+        if (snap) {
+          mainBody.append(snap.el)
+          snap.el.scrollTop = snap.scrollTop
+          const to = mode === 'back' ? dx : -dx
+          const anim = snap.el.animate(
+            [
+              { transform: 'translateX(0px)', opacity: 1 },
+              { transform: `translateX(${to}px)`, opacity: 0 },
+            ],
+            { duration: SLIDE_MS, easing: EASE },
+          )
+          const clear = () => snap.el.remove()
+          anim.finished.then(clear).catch(clear)
+          setTimeout(clear, SLIDE_MS + 150)
+        }
+
+        const rightKey = state.draftKey || state.rightNodeId || ''
+        if (rightKey !== '' && rightKey !== lastRightKey) {
+          lastRightKey = rightKey
+          childBody.animate(
+            [
+              { transform: 'translateX(28px)', opacity: 0 },
+              { transform: 'translateX(0px)', opacity: 1 },
+            ],
+            { duration: 240, easing: EASE },
+          )
+        } else if (rightKey === '') {
+          lastRightKey = null
+        }
+      }
+
+      /* ============================================================
+         交互
+         ============================================================ */
+
+      /** 选中一段后点按钮：右栏才展开 */
+      function askFrom(pane, text) {
+        const clean = String(text || '').replace(/\s+/g, ' ').trim()
+        if (!clean) return
+        hideToolbar()
+        window.getSelection()?.removeAllRanges()
+
+        const shouldDive = pane === 'child' && state.rightNodeId !== null
+        withSlide(() => {
+          if (shouldDive) {
+            state.stack = pathTo(state.rightNodeId).map((n) => n.id)
+            state.rightNodeId = null
+          }
+          const parentId = midId()
+          const key = draftKeyOf(parentId, clean)
+          state.draftKey = key
+          if (!DRAFTS[key]) {
+            putDraft(key, { anchorText: clean, question: '', parentId })
+          }
+        }, shouldDive ? 'dive' : 'none')
+
+        if (shouldDive) toast('已下潜一层')
+        requestAnimationFrame(() => $('draftInput')?.focus())
+      }
+
+      function openChild(childId, fromPane) {
+        if (fromPane === 'child' && state.rightNodeId) {
+          // 右栏里的卡片：当前右栏先沉入中栏
+          withSlide(() => {
+            state.stack = pathTo(state.rightNodeId).map((n) => n.id)
+            state.rightNodeId = childId
+            state.draftKey = null
+          }, 'dive')
+          return
+        }
+        state.rightNodeId = childId
+        state.draftKey = null
+        paint()
+      }
+
+      function promoteRight() {
+        if (!state.rightNodeId) return
+        withSlide(() => {
+          state.stack = pathTo(state.rightNodeId).map((n) => n.id)
+          state.rightNodeId = null
+          state.draftKey = null
+        }, 'dive')
+      }
+
+      function goToDepth(index) {
+        if (index === state.stack.length - 1) return
+        const next = state.stack[index + 1]
+        withSlide(() => {
+          state.stack = state.stack.slice(0, index + 1)
+          state.rightNodeId = next || null
+          state.draftKey = null
+        }, 'back')
+      }
+
+      function submitDraft() {
+        const key = state.draftKey
+        if (!key) return
+        const draft = DRAFTS[key]
+        if (!draft || draft.phase === 'stream') return
+        const question = (draft.question || '').trim()
+        if (!question) return
+
+        putDraft(key, { phase: 'stream', streamText: '' })
+        paint()
+
+        const body = $('childBody')
+        const el = $('draftStream')
+        const full = buildAnswerText(question, draft.anchorText)
+
+        streamInto(el, full, () => {
+          const id = nextId()
+          addNode({
+            id,
+            parentId: draft.parentId,
+            anchor: draft.anchorText,
+            question,
+            fragments: buildFragments(question, draft.anchorText),
+          })
+          dropDraft(key)
+          state.draftKey = null
+          state.rightNodeId = id
+          lastRightKey = null
+          paint()
+          body.scrollTop = 0
+        })
+      }
+
+      function submitComposer() {
+        const input = $('composerInput')
+        const text = input.value.trim()
+        if (!text) return
+        const cur = mid()
+        if (!cur) return
+
+        input.value = ''
+        cur.turns = cur.turns || []
+        cur.turns.push({ question: text, phase: 'stream', text: '', fragments: [] })
+        paint()
+
+        const el = $('turnStream')
+        streamInto(el, buildAnswerText(text, null), () => {
+          const turn = cur.turns[cur.turns.length - 1]
+          turn.phase = 'done'
+          turn.fragments = buildFragments(text, null)
+          paint()
+        })
+      }
+
+      /* ============================================================
+         模拟生成
+         ============================================================ */
+
+      const clip = (text) => (text.length > 22 ? text.slice(0, 22) + '…' : text)
+
+      /**
+       * 模拟回答。anchor 为空表示「从零问一个问题」（开新主题、或原地追问），
+       * 此时不能说「这句话在原文里起什么作用」—— 没有原文可指。
+       */
+      function answerLines(question, anchor) {
+        const q = clip(question)
+        if (!anchor) {
+          return [
+            `先给结论：「${q}」这件事的答案取决于两个变量，而不是单一因素。`,
+            '抓住一条主线就够了：先确定哪些条件在变、哪些被固定住，再看结论随变量怎么移动。条件没摊开时，任何结论都只在特定范围内成立。',
+            '一个可检验的做法是：把相关参数推到极端值，看结论是否还站得住。两端都成立的才是普遍规律；只在中间成立的，就要写清适用区间。',
+          ]
+        }
+        const a = clip(anchor)
+        return [
+          `这里要分开两件事：「${a}」这句话在原文里起什么作用，以及它成立需要什么前提。`,
+          '原文用它支撑上一层的结论，却没有把条件摊开。把条件补上，才能看出它在什么范围内成立、什么时候会失效。',
+          '一个可检验的做法是：把相关参数推到极端值，看结论是否还站得住。两端都成立的才是普遍规律；只在中间成立的，就要写清适用区间。',
+        ]
+      }
+
+      function buildAnswerText(question, anchor) {
+        return answerLines(question, anchor).join('\n\n')
+      }
+
+      function buildFragments(question, anchor) {
+        const [first, ...rest] = answerLines(question, anchor)
+        const lines = [
+          anchor ? first.replace(`「${clip(anchor)}」`, `<b>「${esc(clip(anchor))}」</b>`) : first,
+          ...rest,
+        ]
+        return lines.map((line) => frag(line))
+      }
+
+      let streamToken = 0
+      function streamInto(el, full, done) {
+        if (!el) {
+          done()
+          return
+        }
+        const token = ++streamToken
+        let i = 0
+        el.textContent = ''
+        const caret = document.createElement('span')
+        caret.className = 'caret'
+        el.append(caret)
+
+        const timer = setInterval(() => {
+          if (token !== streamToken) {
+            clearInterval(timer)
+            return
+          }
+          i += 3
+          el.textContent = full.slice(0, i)
+          el.append(caret)
+          if (i >= full.length) {
+            clearInterval(timer)
+            el.textContent = full
+            setTimeout(done, 120)
+          }
+        }, 16)
+      }
+
+      /* ============================================================
+         选区 → 浮动按钮（点击才展开）
+         ============================================================ */
+
+      let pendingSelection = null
+
+      function hideToolbar() {
+        const bar = $('selToolbar')
+        bar.classList.remove('show')
+        pendingSelection = null
+      }
+
+      document.addEventListener('mouseup', (event) => {
+        const targetEl = event.target instanceof Element ? event.target : null
+        if (targetEl?.closest('#selToolbar')) return
+        setTimeout(() => {
+          const sel = window.getSelection()
+          if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+            hideToolbar()
+            return
+          }
+          const text = sel.toString().replace(/\s+/g, ' ').trim()
+          if (!text) {
+            hideToolbar()
+            return
+          }
+
+          const range = sel.getRangeAt(0)
+          const startNode = range.startContainer
+          const startEl =
+            startNode.nodeType === 1 ? startNode : startNode.parentElement
+          const paneEl = startEl?.closest('[data-pane]')
+          if (!paneEl) {
+            hideToolbar()
+            return
+          }
+
+          // 从整段里取选区，锚点文字更稳定
+          const fragEl = startEl.closest('.frag')
+          const anchorText = fragEl?.dataset.fragmentText || text
+
+          pendingSelection = { pane: paneEl.dataset.pane, text: anchorText }
+
+          const rect = range.getBoundingClientRect()
+          const bar = $('selToolbar')
+          const left = Math.min(Math.max(rect.left + rect.width / 2, 90), window.innerWidth - 90)
+          const top = Math.max(rect.top - 8, 52)
+          bar.style.left = `${left}px`
+          bar.style.top = `${top}px`
+          bar.classList.add('show')
+        }, 0)
+      })
+
+      $('selAsk').addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!pendingSelection) return
+        const { pane, text } = pendingSelection
+        askFrom(pane, text)
+      })
+
+      $('selToolbar').addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+
+      document.addEventListener('scroll', hideToolbar, true)
+      document.addEventListener('selectionchange', () => {
+        const sel = window.getSelection()
+        if (!sel || sel.isCollapsed) hideToolbar()
+      })
+
+      /* ============================================================
+         其余绑定
+         ============================================================ */
+
+      $('composerSend').addEventListener('click', submitComposer)
+      $('composerInput').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          submitComposer()
+        }
+      })
+
+      $('backBtn').addEventListener('click', () => goToDepth(state.stack.length - 2))
+
+      let toastTimer = null
+      function toast(text) {
+        const el = $('toast')
+        el.textContent = text
+        el.classList.add('show')
+        clearTimeout(toastTimer)
+        toastTimer = setTimeout(() => el.classList.remove('show'), 1500)
+      }
+
+      // 左栏按钮只把中栏切到「开新对话」，真提交时才建节点
+      $('newTopic').addEventListener('click', enterNewTopic)
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+      $('demoDive').addEventListener('click', async () => {
+        state.rootId = 'root'
+        state.stack = ['root']
+        state.rightNodeId = null
+        state.draftKey = null
+        lastRightKey = null
+        paint()
+        for (const id of ['a1', 'b1', 'c1']) {
+          await sleep(520)
+          state.rightNodeId = id
+          paint()
+          await sleep(620)
+          withSlide(() => {
+            state.stack = pathTo(id).map((n) => n.id)
+            state.rightNodeId = null
+          }, 'dive')
+        }
+      })
+
+      $('demoReset').addEventListener('click', () => {
+        DRAFTS = {}
+        writeJson(DRAFT_KEY, DRAFTS)
+        state.rootId = 'root'
+        state.stack = ['root']
+        state.rightNodeId = null
+        state.draftKey = null
+        lastRightKey = null
+        paint()
+      })
+
+      window.addEventListener('resize', hideToolbar)
+
+      /* ============================================================
+         鼠标所在即放宽：指针进哪栏，哪栏变宽，另一栏让位
+         ============================================================ */
+
+      let focusPane = null
+
+      function setFocus(pane) {
+        if (pane === focusPane) return
+        // 只在鼠标真的换栏时才改，避免同栏内移动反复触发重排
+        focusPane = pane
+        if (pane === 'main' || pane === 'child') {
+          document.body.dataset.focus = pane
+        } else {
+          delete document.body.dataset.focus
+        }
+      }
+
+      document.addEventListener(
+        'pointermove',
+        (event) => {
+          const target = event.target instanceof Element ? event.target : null
+          if (!target) return
+          const pane = target.closest('[data-pane-head]') || target.closest('.pane')
+          const kind = pane ? pane.getAttribute('data-pane-kind') : null
+          setFocus(kind)
+        },
+        { passive: true },
+      )
+
+      // 指针离开整个应用（如移到原型工具条）时回到默认配比
+      document.addEventListener('pointerleave', () => setFocus(null))
+
+      paint()
+    </script>
+  </body>
+</html>
