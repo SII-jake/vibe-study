@@ -68,3 +68,18 @@ export function removeSubtree(nodes: LearnNode[], nodeId: string): LearnNode[] {
   }
   return nodes.filter((node) => !doomed.has(node.id))
 }
+
+/** 写入模型摘要出的标题；空白标题视为清除，避免列表出现空标题项。 */
+export function setNodeTitle(nodes: LearnNode[], nodeId: string, title: string): LearnNode[] {
+  const trimmed = title.trim()
+  if (!nodes.some((node) => node.id === nodeId)) return nodes
+
+  return nodes.map((node) => {
+    if (node.id !== nodeId) return node
+    if (trimmed === '') {
+      const { title: _removed, ...rest } = node
+      return rest
+    }
+    return { ...node, title: trimmed }
+  })
+}

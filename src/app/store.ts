@@ -6,8 +6,10 @@ import {
   appendUserMessage,
   clearLastAnswer,
   removeSubtree,
+  setNodeTitle,
 } from '../domain/tree-ops'
 import { streamChat } from '../ai/provider'
+import { fetchTitle } from '../ai/title'
 import { effectiveModel, fetchHealth, type ServerHealth, UNKNOWN_HEALTH } from '../ai/health'
 import { loadNodes, replaceAllNodes } from '../storage/db'
 import { createDemoNodes } from './demo'
@@ -90,6 +92,27 @@ export function useLearnData(): LearnData {
     persist(next)
   }, [])
 
+  /**
+   * 生成会话标题：拿「提问 + 刚完成的回答」交给服务端摘要。
+   * 已经有标题就跳过（重生成不必重复花一次调用），失败则保持原提问，
+   * 由展示层的 nodeLabel 统一回退。
+   */
+  const nameSession = useCallback(
+    async (nodeId: string, answer: string) => {
+      const target = nodesRef.current.find((node) => node.id === nodeId)
+      if (!target) return
+      if ((target.title ?? '').trim() !== '') return
+
+      const question = target.messages[0]?.content ?? ''
+      if (question.trim() === '') return
+
+      const title = await fetchTitle({ question, answer })
+      if (title === '') return
+      apply(setNodeTitle(nodesRef.current, nodeId, title))
+    },
+    [apply],
+  )
+
   const runStream = useCallback(
     async (nodeId: string, latestNodes: LearnNode[]) => {
       const current = await fetchHealth()
@@ -123,6 +146,7 @@ export function useLearnData(): LearnData {
           return
         }
         apply(appendAnswer(nodesRef.current, nodeId, accumulated, Date.now()))
+        void nameSession(nodeId, accumulated)
       } catch (cause) {
         if (controller.signal.aborted) {
           apply(clearLastAnswer(nodesRef.current, nodeId))
@@ -136,7 +160,7 @@ export function useLearnData(): LearnData {
         controllerRef.current = null
       }
     },
-    [apply],
+    [apply, nameSession],
   )
 
   /** 同节点再追问：不开新分支，问题与回答留在当前节点顺排，上下文含全部历史轮次。 */

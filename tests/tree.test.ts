@@ -6,6 +6,7 @@ import {
   createRootNode,
   descendantCount,
   latestAnswer,
+  nodeLabel,
 } from '../src/domain/tree'
 
 const root = createRootNode({
@@ -107,5 +108,23 @@ describe('latestAnswer', () => {
       ],
     }
     expect(latestAnswer(answered)?.content).toBe('第二版')
+  })
+})
+
+describe('nodeLabel', () => {
+  it('有模型标题时优先用标题', () => {
+    expect(nodeLabel({ ...child, title: '利息的计算方式' })).toBe('利息的计算方式')
+  })
+
+  it('没有标题时回退到原提问', () => {
+    expect(nodeLabel(child)).toBe('有反例吗')
+  })
+
+  it('标题是空白时同样回退到原提问', () => {
+    expect(nodeLabel({ ...child, title: '   ' })).toBe('有反例吗')
+  })
+
+  it('既无标题也无消息时返回占位文案，不返回 undefined', () => {
+    expect(nodeLabel({ ...child, title: undefined, messages: [] })).toBe('未命名会话')
   })
 })

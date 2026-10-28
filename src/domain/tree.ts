@@ -23,6 +23,8 @@ export interface LearnNode {
   anchor: Anchor | null
   messages: Message[]
   createdAt: number
+  /** 模型摘要出的会话标题；尚未生成时缺席，展示层回退到原提问 */
+  title?: string
 }
 
 export interface CreateRootInput {
@@ -120,4 +122,16 @@ export function latestAnswer(node: LearnNode): Message | null {
     if (message?.role === 'assistant') return message
   }
   return null
+}
+
+/**
+ * 节点在列表/面包屑/树里的显示名。
+ * 口径唯一：有模型摘要的标题就用标题，没有才回退到原始提问；
+ * 各处不得自行拼装，避免同一个会话在不同位置显示成不同名字。
+ */
+export function nodeLabel(node: LearnNode): string {
+  const title = node.title?.trim() ?? ''
+  if (title !== '') return title
+  const question = node.messages[0]?.content?.trim() ?? ''
+  return question === '' ? '未命名会话' : question
 }

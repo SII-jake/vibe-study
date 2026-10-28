@@ -5,6 +5,7 @@ import {
   appendUserMessage,
   clearLastAnswer,
   removeSubtree,
+  setNodeTitle,
 } from '../src/domain/tree-ops'
 
 const root = createRootNode({ id: 'root', topic: '什么是复利', createdAt: 1 })
@@ -79,5 +80,22 @@ describe('clearLastAnswer', () => {
 
   it('没有回答时不动', () => {
     expect(clearLastAnswer(nodes, 'child')).toEqual(nodes)
+  })
+})
+
+describe('setNodeTitle', () => {
+  it('只改目标节点的标题，不动其它节点', () => {
+    const titled = setNodeTitle(nodes, 'child', '利息的计算方式')
+    expect(titled[1]?.title).toBe('利息的计算方式')
+    expect(titled[0]?.title).toBeUndefined()
+    expect(titled[2]?.title).toBeUndefined()
+  })
+
+  it('空白标题视为清除，避免列表出现空标题项', () => {
+    expect(setNodeTitle(nodes, 'child', '   ')[1]?.title).toBeUndefined()
+  })
+
+  it('节点不存在时原样返回', () => {
+    expect(setNodeTitle(nodes, 'missing', 'x')).toEqual(nodes)
   })
 })
