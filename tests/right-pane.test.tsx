@@ -75,6 +75,48 @@ describe('RightPane', () => {
     expect(onVisibilityChange).toHaveBeenCalledWith(true)
   })
 
+  it('已经打开的右栏在内容切换时也自右侧滑入，与中栏的下潜同方向同速度', () => {
+    // 用户指认的"两栏各动各的"其中一块：中栏在播 DiveSlide，
+    // 右栏却被暗自替换 —— 下潜必须让它也有轨迹。
+    render(
+      <RightPane open={true} motionKey="a1">
+        子对话 a1
+      </RightPane>,
+    )
+    const callsBefore = animateStub.mock.calls.length
+
+    render(
+      <RightPane open={true} motionKey="b1">
+        子对话 b1
+      </RightPane>,
+    )
+
+    expect(animateStub.mock.calls.length).toBeGreaterThan(callsBefore)
+    const frames = animateStub.mock.calls[callsBefore]?.[0] as Array<{
+      transform?: string
+    }>
+    // 从正位移滑入、落回 0；方向与速度要跟 DiveSlide 一致
+    expect(frames[0]?.transform).toContain('translateX(')
+    expect(frames[0]?.transform).not.toContain('translateX(0px)')
+    expect(frames[0]?.transform).not.toContain('translateX(-')
+    expect(frames[frames.length - 1]?.transform).toBe('translateX(0px)')
+  })
+
+  it('motionKey 不变的重渲染不重放动画', () => {
+    render(
+      <RightPane open={true} motionKey="a1">
+        子对话 a1
+      </RightPane>,
+    )
+    const callsBefore = animateStub.mock.calls.length
+    render(
+      <RightPane open={true} motionKey="a1">
+        子对话 a1（重渲染）
+      </RightPane>,
+    )
+    expect(animateStub.mock.calls.length).toBe(callsBefore)
+  })
+
   it('从关闭状态打开同样自右侧滑入，而不是仅在首帧就位', () => {
     // open 从 false 翻成 true 时 aside 尚未挂进 DOM，
     // 进场动画必须等它出现后播放，否则等于悄无声息地打开门

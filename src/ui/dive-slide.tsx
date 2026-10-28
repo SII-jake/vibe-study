@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { DIVE_EASE, DIVE_SLIDE_MS } from './dive-timing'
 
 export interface DiveSlideProps {
   /**
@@ -12,8 +13,10 @@ export interface DiveSlideProps {
   onPointerLeave?(): void
 }
 
-const SLIDE_MS = 420
-const EASE = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
+// 时间轴与右栏一致（见 dive-timing.ts）：一处改动两栏同步，
+// 不要在这里另设一份参数，否则两栏又会各自跳动。
+const SLIDE_MS = DIVE_SLIDE_MS
+const EASE = DIVE_EASE
 
 /**
  * 「右栏升入中栏」的过渡容器。

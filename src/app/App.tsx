@@ -236,6 +236,7 @@ export function App() {
       <RightPane
         open={rightOpen}
         onVisibilityChange={setRightVisible}
+        motionKey={pendingAsk ? pendingAsk.nodeId : rightNode?.id ?? null}
       >
         <div
           className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}

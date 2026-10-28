@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { DIVE_EASE, DIVE_SLIDE_MS } from './dive-timing'
 
 export interface RightPaneProps {
   /** 是否应显示右栏 */
   open: boolean
   children: ReactNode
+  /** 内容切换标识：变化时自右侧滑入，与中栏 DiveSlide 同一时间轴 */
+  motionKey?: string | null
   /** 出现/消失结束时回调：结束才通知外层同步编排（如 grid 收窄） */
   onVisibilityChange?(visible: boolean): void
   onPointerEnter?(): void
   onPointerLeave?(): void
 }
 
-const SLIDE_MS = 320
-const EASE = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
+const SLIDE_MS = DIVE_SLIDE_MS
+const EASE = DIVE_EASE
 
 function canSlide(): boolean {
   return (
@@ -45,12 +48,14 @@ interface ExitJob {
 export function RightPane({
   open,
   children,
+  motionKey,
   onVisibilityChange,
   onPointerEnter,
   onPointerLeave,
 }: RightPaneProps) {
   const [mounted, setMounted] = useState(open)
   const prevOpenRef = useRef(false)
+  const prevMotionKeyRef = useRef<string | null | undefined>(motionKey)
   const actionRef = useRef<'idle' | 'enter' | 'exit'>('idle')
   const exitRef = useRef<ExitJob | null>(null)
   const paneRef = useRef<HTMLElement>(null)
@@ -60,6 +65,25 @@ export function RightPane({
   useEffect(() => {
     notifyRef.current = onVisibilityChange
   })
+
+  /** 内容切换（下潜到新子对话）：与中栏 DiveSlide 同方向同速度地自右滑入。 */
+  useEffect(() => {
+    if (motionKey === prevMotionKeyRef.current) return
+    const hadPrevious = prevMotionKeyRef.current !== undefined && prevMotionKeyRef.current !== null
+    prevMotionKeyRef.current = motionKey
+    if (!open || !hadPrevious) return undefined
+    const element = paneRef.current
+    if (!element || !canSlide()) return undefined
+    const dx = slideDistance(element)
+    element.animate(
+      [
+        { transform: `translateX(${dx}px)`, opacity: 0.5 },
+        { transform: 'translateX(0px)', opacity: 1 },
+      ],
+      { duration: SLIDE_MS, easing: EASE },
+    )
+    return undefined
+  }, [open, motionKey])
 
   // 打开期间内容跟随；一变关闭就冻结，离场动画播的是当时的子对话
   useEffect(() => {
