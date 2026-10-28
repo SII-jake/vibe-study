@@ -6,6 +6,7 @@ import {
   childrenByFragment,
   descendantCount,
   latestAnswer,
+  nodeLabel,
   type LearnNode,
   type Message,
 } from '../domain/tree'
@@ -13,6 +14,7 @@ import type { AskInput, LearnData } from '../app/store'
 import { AskCard } from './AskCard'
 import { AskSheet } from './AskSheet'
 import { FragmentView } from './FragmentView'
+import type { SelectionReading } from './selection'
 import { useSelectionAnchor } from './use-selection-anchor'
 import {
   readReadingPosition,
@@ -28,6 +30,15 @@ export interface NodePageProps {
   onOpenTree(nodeId: string): void
   /** 打开左侧会话抽屉；桌面由 App 层直接省略此 prop，按钮也随之不出现 */
   onOpenMenu?: () => void
+  /** 桌面端：把选中文字交给右栏提问，替代底部弹窗 */
+  onRequestAsk?(reading: SelectionReading): void
+  /** 桌面端：点分支卡片时在右栏展开子对话，而不是替换中栏 */
+  onOpenBranch?(nodeId: string): void
+  /**
+   * 右栏内嵌形态：去掉整页头与底部追问条，只留正文。
+   * 右栏自己有标题栏，重复渲染会挤掉阅读空间。
+   */
+  compact?: boolean
 }
 
 interface PendingAsk {
@@ -49,6 +60,9 @@ export function NodePage({
   onNavigate,
   onOpenTree,
   onOpenMenu,
+  onRequestAsk,
+  onOpenBranch,
+  compact = false,
 }: NodePageProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [pending, setPending] = useState<PendingAsk | null>(null)
@@ -166,11 +180,13 @@ export function NodePage({
   }
 
   const streaming = data.streamingNodeId === node.id
-  const question = node.messages[0]?.content ?? ''
+  // 面包屑用会话标题（模型摘要），正文标题仍显示用户当时问的原话
+  const label = nodeLabel(node)
 
   return (
-    <div className="page page-reader">
-      <header className="reader-head">
+    <div className={`page page-reader ${compact ? 'page-reader-compact' : ''}`}>
+      {!compact && (
+        <header className="reader-head">
         {onOpenMenu && (
           <button type="button" className="icon-btn menu-btn" onClick={onOpenMenu} aria-label="会话列表">
             ☰
@@ -183,9 +199,9 @@ export function NodePage({
         )}
         <div className="reader-crumb">
           <button type="button" className="crumb-link" onClick={() => onOpenTree(path[0]?.id ?? node.id)}>
-            {path[0]?.messages[0]?.content ?? 'vibe study'}
+            {path[0] ? nodeLabel(path[0]) : 'vibe study'}
           </button>
-          {path.length > 1 && <span className="crumb-current">{question}</span>}
+          {path.length > 1 && <span className="crumb-current">{label}</span>}
         </div>
         <button
           type="button"
@@ -195,7 +211,8 @@ export function NodePage({
         >
           ⋔
         </button>
-      </header>
+        </header>
+      )}
 
       <div className="reader-body" ref={bodyRef}>
         {node.anchor && (
@@ -231,13 +248,14 @@ export function NodePage({
                       <FragmentView
                         fragment={fragment}
                         highlight={highlightByMessage.get(message.id) ?? null}
+                        anchors={children.map((child) => child.anchor?.text ?? '').filter((t) => t !== '')}
                       />
                       {children.map((child) => (
                         <AskCard
                           key={child.id}
                           node={child}
                           branchCount={descendantCount(data.nodes, child.id)}
-                          onOpen={onNavigate}
+                          onOpen={onOpenBranch ?? onNavigate}
                         />
                       ))}
                     </div>
@@ -279,6 +297,7 @@ export function NodePage({
         )}
       </div>
 
+      {/* 右栏也要能继续追问，所以 compact 同样保留底部输入条 */}
       {answer && (
         <div className="follow-bar">
           <textarea
@@ -305,13 +324,22 @@ export function NodePage({
           type="button"
           className="ask-fab"
           style={{ left: picked.centerX, top: Math.max(picked.top - 44, 12) }}
-          onClick={() => setPending(picked.reading)}
+          onClick={() => {
+            if (onRequestAsk) {
+              // 桌面端：右栏就地提问，正文保持可见
+              onRequestAsk(picked.reading)
+              clear()
+              return
+            }
+            setPending(picked.reading)
+          }}
         >
           就这段提问
         </button>
       )}
 
-      {pending && (
+      {/* 手机端没有右栏，退回底部弹窗；桌面端提问框在右栏 */}
+      {pending && !onRequestAsk && (
         <AskSheet
           anchorText={pending.text}
           onSubmit={submitQuestion}

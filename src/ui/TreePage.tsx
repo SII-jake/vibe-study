@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { breadcrumb, type LearnNode } from '../domain/tree'
+import { breadcrumb, nodeLabel, type LearnNode } from '../domain/tree'
 import type { LearnData } from '../app/store'
 
 export interface TreePageProps {
@@ -59,7 +59,7 @@ export function TreePage({ data, nodeId, onNavigate, onBack }: TreePageProps) {
               className={`tree-row ${node.id === nodeId ? 'tree-row-current' : ''}`}
               onClick={() => onNavigate(node.id)}
             >
-              <span className="tree-question">{node.messages[0]?.content}</span>
+              <span className="tree-question">{nodeLabel(node)}</span>
               {node.anchor && <span className="tree-anchor">「{node.anchor.text}」</span>}
             </button>
           </li>

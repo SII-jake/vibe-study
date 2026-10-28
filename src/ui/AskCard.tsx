@@ -1,4 +1,4 @@
-import type { LearnNode } from '../domain/tree'
+import { nodeLabel, type LearnNode } from '../domain/tree'
 
 export interface AskCardProps {
   node: LearnNode
@@ -8,7 +8,7 @@ export interface AskCardProps {
 
 /** 挂在片段下方的引子：点开才进入分支，避免在手机上层层缩进。 */
 export function AskCard({ node, branchCount, onOpen }: AskCardProps) {
-  const question = node.messages[0]?.content ?? ''
+  const question = nodeLabel(node)
   return (
     <button type="button" className="ask-card" onClick={() => onOpen(node.id)}>
       <span className="ask-card-mark">💬</span>
