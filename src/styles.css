@@ -794,11 +794,6 @@ button {
   transition: grid-template-columns 220ms ease;
 }
 
-/* 右栏只在有子对话/提问时出现；宽度由用户拖分隔条决定（App 内联覆盖） */
-.app-shell.has-right {
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
-}
-
 /* 拖拽进行中禁用过渡，松手过渡回来，避免宽度追手时抖动 */
 .app-shell[data-dragging] {
   transition: none;
@@ -829,15 +824,6 @@ button {
 /* 拖到窄手机上没有右栏，分隔条无从发挥作用 */
 body:has([data-dragging]) {
   user-select: none;
-}
-
-.app-right {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border-left: 1px solid var(--line);
-  background: var(--surface);
-  overflow: hidden;
 }
 
 .right-head {
@@ -947,33 +933,62 @@ body:has([data-dragging]) {
 }
 
 .app-main {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* 下潜过渡容器：横向裁剪，新旧内容并排时不互相穿越 */
-.dive-layer {
+  /* 分隔条是 absolute 定位，必须由主区作为定位上下文 */
   position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
-.dive-live {
+/* 轨道舞台：视口固定宽度并横向裁剪，整条对话链在里面横铺 */
+.track-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 轨道本身一次平移，lane 不带任何 transform —— 两格刚性相邻 */
+.track-stage-track {
   display: flex;
-  flex-direction: column;
   height: 100%;
+  transition: transform 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
 }
 
-.dive-snapshot {
-  position: absolute;
-  inset: 0;
+.track-lane {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+}
+
+.track-lane:last-child {
+  border-right: none;
+}
+
+.track-lane > .page,
+.track-lane > .track-right {
+  height: 100%;
+}
+
+.track-right {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--bg);
-  will-change: transform;
+  min-height: 0;
+  background: var(--surface);
+}
+
+/* 右栏等待下潜的空格：告诉用户下一步能做什么 */
+.track-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
 }
 
 .app-main > .page {

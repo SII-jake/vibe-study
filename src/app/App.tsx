@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AskPane } from '../ui/AskPane'
-import { DiveSlide } from '../ui/dive-slide'
 import { NodePage } from '../ui/NodePage'
-import { RightPane } from '../ui/right-pane'
 import { SessionList } from '../ui/SessionList'
 import { SettingsPage } from '../ui/SettingsPage'
 import { StartPage } from '../ui/StartPage'
+import { TrackStage } from '../ui/track-stage'
 import { TreePage } from '../ui/TreePage'
 import { toAskInput } from '../ui/ask-target'
+import { useElementWidth } from '../ui/use-element-width'
 import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
+import { centerIndex, computeTrack } from './track-view'
 import { type PaneSide, type PaneView, planAsk, planPlaceChild, planPromote } from './pane-state'
 import { parseRoute, type Route, routeToHash } from './route'
 import { useLearnData } from './store'
@@ -46,14 +47,15 @@ export function App() {
   const [rightNodeId, setRightNodeId] = useState<string | null>(null)
   /** 中心和右栏要一起变，用它告诉 route 副作用这次别清空右栏 */
   const diveRef = useRef<DiveIntent | null>(null)
-  /** 右栏是否仍占着一个轨道：由过渡组件回调，离场动画播完才变 false */
-  const [rightVisible, setRightVisible] = useState(false)
-  /** 可拖分隔条：右栏宽度由用户拖动决定（向左拖变宽、向右拖变窄） */
+  /** 中栏宽度：分隔条向右拖变宽，右栏同时让出 */
   const [paneWidth, paneDragging, startPaneDrag] = usePaneWidth({
-    initial: 360,
-    min: 240,
-    max: 640,
+    initial: 640,
+    min: 320,
+    max: 1400,
+    grow: 'right',
   })
+  /** 轨道舞台的实际像素宽，用于把两格铺满视口 */
+  const [stageRef, viewportWidth] = useElementWidth<HTMLDivElement>()
 
   useEffect(() => {
     const handler = () => setRoute(parseRoute(window.location.hash))
@@ -166,8 +168,14 @@ export function App() {
       ? (breadcrumb(data.nodes, route.nodeId)[0]?.id ?? null)
       : null
 
-  const rightNode = rightNodeId ? data.nodes.find((item) => item.id === rightNodeId) ?? null : null
-  const rightOpen = route.kind === 'node' && (pendingAsk !== null || rightNode !== null)
+  /** 轨道只用于对话页；其它页面仍是单页布局 */
+  const isTrack = route.kind === 'node'
+  const centerPath = isTrack
+    ? breadcrumb(data.nodes, route.nodeId).map((item) => item.id)
+    : []
+  const lanes = computeTrack(centerPath, rightNodeId)
+  const centerIdx = centerIndex(lanes)
+  const lastIdx = lanes.length - 1
 
   const sidebar = (
     <SessionList
@@ -180,123 +188,126 @@ export function App() {
   )
 
   return (
-    <div
-      className={`app-shell ${rightVisible ? 'has-right' : ''}`}
-      data-dragging={paneDragging ? '' : undefined}
-      style={
-        rightVisible
-          ? ({ gridTemplateColumns: `320px minmax(0, 1fr) ${paneWidth}px` } as React.CSSProperties)
-          : undefined
-      }
-    >
+    <div className="app-shell" data-dragging={paneDragging ? '' : undefined}>
       {/* TODO(mobile): 手机端的抽屉入口暂时关闭，后续单独设计手机交互 */}
       <aside className="app-sidebar">{sidebar}</aside>
 
-      <DiveSlide
-        className="app-main"
-        trigger={centerNodeId}
-      >
-        {route.kind === 'topics' && (
-          <StartPage data={data} onCreated={openNode} />
-        )}
-
-        {route.kind === 'node' && (
-          <NodePage
-            data={data}
-            nodeId={route.nodeId}
-            onNavigate={openNode}
-            onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
-            onRequestAsk={(reading) => beginAsk(route.nodeId, reading, 'main')}
-            onOpenBranch={(id) => placeChild(id, 'main')}
-          />
-        )}
-
-        {route.kind === 'tree' && (
-          <TreePage
-            data={data}
-            nodeId={route.nodeId}
-            onNavigate={openNode}
-            onBack={() => navigate({ kind: 'node', nodeId: route.nodeId })}
-          />
-        )}
-
-        {route.kind === 'settings' && (
-          <SettingsPage
-            health={data.health}
-            onRefreshHealth={data.refreshHealth}
-            onBack={() =>
-              navigate(
-                activeRootId ? { kind: 'node', nodeId: activeRootId } : { kind: 'topics' },
-              )
-            }
-          />
-        )}
-      </DiveSlide>
-
-      <RightPane
-        open={rightOpen}
-        onVisibilityChange={setRightVisible}
-        motionKey={pendingAsk ? pendingAsk.nodeId : rightNode?.id ?? null}
-      >
-        <div
-          className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="调整右栏宽度"
-          onPointerDown={startPaneDrag}
-        />
-        <header className="right-head">
-          <span className="right-label">{pendingAsk ? '新分支' : '子对话'}</span>
-          <div className="right-actions">
-            {rightNode && (
-              <button
-                type="button"
-                className="btn-ghost right-promote"
-                title="把这条子对话设为中栏当前对话"
-                onClick={() => {
-                  const next = planPromote({ centerNodeId, rightNodeId })
-                  diveRef.current = null
-                  setRightNodeId(next.rightNodeId)
-                  if (next.centerNodeId) navigate({ kind: 'node', nodeId: next.centerNodeId })
-                }}
-              >
-                设为当前
-              </button>
-            )}
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={() => {
-                setPendingAsk(null)
-                setRightNodeId(null)
-              }}
-              aria-label="收起右栏"
-            >
-              ✕
-            </button>
-          </div>
-        </header>
-
-        {pendingAsk ? (
-          <AskPane
-            anchorText={pendingAsk.reading.text}
-            onSubmit={submitPendingAsk}
-            onCancel={() => setPendingAsk(null)}
-          />
-        ) : (
-          rightNode && (
-            <NodePage
-              data={data}
-              nodeId={rightNode.id}
-              onNavigate={openNode}
-              onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
-              onRequestAsk={(reading) => beginAsk(rightNode.id, reading, 'right')}
-              onOpenBranch={(id) => placeChild(id, 'right')}
-              compact
+      <div className="app-main" ref={stageRef}>
+        {isTrack ? (
+          <>
+            {/* 分隔条固定在中栏右边缘；轨道本身只整体平移，不单独动任何一格 */}
+            <div
+              className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
+              style={{ left: `${paneWidth}px` }}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整中栏宽度"
+              onPointerDown={startPaneDrag}
             />
-          )
+            <TrackStage
+              lanes={lanes}
+              centerWidth={paneWidth}
+              viewportWidth={viewportWidth}
+              renderLane={(lane, index) => {
+                const isCenter = index === centerIdx
+                const isRight = index === lastIdx
+
+                if (lane.nodeId === null) {
+                  return pendingAsk ? (
+                    <AskPane
+                      anchorText={pendingAsk.reading.text}
+                      onSubmit={submitPendingAsk}
+                      onCancel={() => setPendingAsk(null)}
+                    />
+                  ) : (
+                    <div className="track-empty">
+                      <p className="hint">选中一段文字，就能在这里开一条新的追问。</p>
+                    </div>
+                  )
+                }
+
+                const body = (
+                  <NodePage
+                    data={data}
+                    nodeId={lane.nodeId}
+                    onNavigate={openNode}
+                    onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
+                    onRequestAsk={(reading) =>
+                      beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
+                    }
+                    onOpenBranch={(id) => placeChild(id, isCenter ? 'main' : 'right')}
+                    compact={!isCenter}
+                  />
+                )
+
+                if (!isRight) return body
+
+                return (
+                  <div className="track-right">
+                    <header className="right-head">
+                      <span className="right-label">子对话</span>
+                      <div className="right-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost right-promote"
+                          title="把这条子对话设为中栏当前对话"
+                          onClick={() => {
+                            const next = planPromote({ centerNodeId, rightNodeId })
+                            diveRef.current = null
+                            setRightNodeId(next.rightNodeId)
+                            if (next.centerNodeId) {
+                              navigate({ kind: 'node', nodeId: next.centerNodeId })
+                            }
+                          }}
+                        >
+                          设为当前
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => {
+                            setPendingAsk(null)
+                            setRightNodeId(null)
+                          }}
+                          aria-label="收起子对话"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </header>
+                    {body}
+                  </div>
+                )
+              }}
+            />
+          </>
+        ) : (
+          <>
+            {route.kind === 'topics' && <StartPage data={data} onCreated={openNode} />}
+
+            {route.kind === 'tree' && (
+              <TreePage
+                data={data}
+                nodeId={route.nodeId}
+                onNavigate={openNode}
+                onBack={() => navigate({ kind: 'node', nodeId: route.nodeId })}
+              />
+            )}
+
+            {route.kind === 'settings' && (
+              <SettingsPage
+                health={data.health}
+                onRefreshHealth={data.refreshHealth}
+                onBack={() =>
+                  navigate(
+                    activeRootId ? { kind: 'node', nodeId: activeRootId } : { kind: 'topics' },
+                  )
+                }
+              />
+            )}
+          </>
         )}
-      </RightPane>
+      </div>
 
       {data.error && (
         <div className="toast" role="alert" onClick={data.clearError}>

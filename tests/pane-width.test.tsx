@@ -32,6 +32,16 @@ function Probe({ initial = 360, min = 240, max = 560 }: { initial?: number; min?
   )
 }
 
+function GrowRightProbe({ initial = 560 }: { initial?: number }) {
+  const [width, dragging, startDrag] = usePaneWidth({ initial, min: 240, max: 900, grow: 'right' })
+  return (
+    <div data-dragging={dragging ? '1' : '0'}>
+      <span data-testid="width">{width}</span>
+      <button data-testid="handle" onPointerDown={startDrag} />
+    </div>
+  )
+}
+
 function render(el: React.ReactElement) {
   act(() => root.render(el))
 }
@@ -100,5 +110,23 @@ describe('usePaneWidth', () => {
     act(() => window.dispatchEvent(pointerEvent('pointermove', 460)))
     expect(width()).toBe(480)
     act(() => window.dispatchEvent(pointerEvent('pointerup', 460)))
+  })
+
+  it('grow=right：向右拖让分隔条右侧的目标栏变宽（用于中栏宽度）', () => {
+    render(<GrowRightProbe initial={560} />)
+    act(() => handle().dispatchEvent(pointerEvent('pointerdown', 400)))
+    act(() => window.dispatchEvent(pointerEvent('pointermove', 500)))
+    expect(width()).toBe(660)
+    act(() => window.dispatchEvent(pointerEvent('pointerup', 500)))
+  })
+
+  it('grow=right：向左拖让目标栏变窄，并同样受上下限钳制', () => {
+    render(<GrowRightProbe initial={560} />)
+    act(() => handle().dispatchEvent(pointerEvent('pointerdown', 400)))
+    act(() => window.dispatchEvent(pointerEvent('pointermove', 300)))
+    expect(width()).toBe(460)
+    act(() => window.dispatchEvent(pointerEvent('pointermove', 0)))
+    expect(width()).toBe(240) // 触到 min 即停
+    act(() => window.dispatchEvent(pointerEvent('pointerup', 0)))
   })
 })
