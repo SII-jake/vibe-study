@@ -12,7 +12,14 @@ import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
 import { centerIndex, computeTrack } from './track-view'
-import { type PaneSide, type PaneView, planAsk, planPlaceChild, planPromote } from './pane-state'
+import {
+  type PaneSide,
+  type PaneView,
+  planAsk,
+  planGoBack,
+  planPlaceChild,
+  planPromote,
+} from './pane-state'
 import { parseRoute, type Route, routeToHash } from './route'
 import { useLearnData } from './store'
 
@@ -236,6 +243,13 @@ export function App() {
                       beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
                     }
                     onOpenBranch={(id) => placeChild(id, isCenter ? 'main' : 'right')}
+                    onGoBack={(parentId) => {
+                      // 返回 = 视口左移一格：刚读的对话留在右栏，不清空
+                      const next = planGoBack({ centerNodeId, rightNodeId }, parentId)
+                      if (next.centerNodeId) {
+                        diveTo(next.centerNodeId, next.rightNodeId, null)
+                      }
+                    }}
                     compact={!isCenter}
                   />
                 )

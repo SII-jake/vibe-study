@@ -44,3 +44,37 @@ export function readSelection(container: HTMLElement, range: Range): SelectionRe
   if (turnId) reading.messageId = turnId
   return reading
 }
+
+export interface ButtonAnchor {
+  /** 选区中心 x（视口坐标） */
+  centerX: number
+  /** 选区上沿 y（视口坐标） */
+  top: number
+}
+
+export interface ButtonViewport {
+  width: number
+  height: number
+  /** 浮动按钮自身宽度，用于把整颗按钮收进视口 */
+  buttonWidth: number
+  /** 与视口边缘保留的间距 */
+  margin?: number
+}
+
+/**
+ * 把浮动按钮收进视口。
+ * 选区贴右边缘时若直接用选区中心定位，按钮有一半落在窗口外，用户点不到；
+ * 因此按按钮实际宽度夹住左右两端。纵向只保证不被上缘裁掉。
+ */
+export function placeFloatingButton(anchor: ButtonAnchor, viewport: ButtonViewport): ButtonAnchor {
+  const margin = viewport.margin ?? 8
+  const half = viewport.buttonWidth / 2
+  const minX = half + margin
+  const maxX = viewport.width - half - margin
+
+  // 视口比按钮还窄时没有合法区间，退到居中，避免产生负坐标
+  const centerX =
+    minX > maxX ? Math.max(0, viewport.width / 2) : Math.min(maxX, Math.max(minX, anchor.centerX))
+
+  return { centerX, top: Math.max(margin, anchor.top) }
+}

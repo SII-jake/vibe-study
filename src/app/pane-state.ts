@@ -42,3 +42,13 @@ export function planPromote(view: PaneView): PaneView {
   if (view.rightNodeId === null) return view
   return { centerNodeId: view.rightNodeId, rightNodeId: null }
 }
+
+/**
+ * 返回上一级：视口左移一格。
+ * 轨道语义下「返回」不是清空右栏 —— 刚才的中栏正好是上一级的子对话，
+ * 它应该留在右栏，用户能同时对照父子两级。
+ */
+export function planGoBack(view: PaneView, parentNodeId: string | null): PaneView {
+  if (parentNodeId === null) return view
+  return { centerNodeId: parentNodeId, rightNodeId: view.centerNodeId }
+}

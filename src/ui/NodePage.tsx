@@ -12,6 +12,7 @@ import {
 } from '../domain/tree'
 import type { AskInput, LearnData } from '../app/store'
 import { AskCard } from './AskCard'
+import { AskFab } from './ask-fab'
 import { AskSheet } from './AskSheet'
 import { FragmentView } from './FragmentView'
 import type { SelectionReading } from './selection'
@@ -34,6 +35,12 @@ export interface NodePageProps {
   onRequestAsk?(reading: SelectionReading): void
   /** 桌面端：点分支卡片时在右栏展开子对话，而不是替换中栏 */
   onOpenBranch?(nodeId: string): void
+  /**
+   * 桌面端：返回上一级。
+   * 轨道语义下这不是清空右栏，而是视口左移一格 —— 刚读的对话应留在右栏。
+   * 未提供时退回 onNavigate（单页形态，如手机端）。
+   */
+  onGoBack?(parentNodeId: string): void
   /**
    * 右栏内嵌形态：去掉整页头与底部追问条，只留正文。
    * 右栏自己有标题栏，重复渲染会挤掉阅读空间。
@@ -62,6 +69,7 @@ export function NodePage({
   onOpenMenu,
   onRequestAsk,
   onOpenBranch,
+  onGoBack,
   compact = false,
 }: NodePageProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -135,8 +143,12 @@ export function NodePage({
   const goBack = useCallback(() => {
     if (!node?.parentId) return
     if (node.anchor) rememberFocus(node.parentId, node.anchor)
+    if (onGoBack) {
+      onGoBack(node.parentId)
+      return
+    }
     onNavigate(node.parentId)
-  }, [node, onNavigate])
+  }, [node, onNavigate, onGoBack])
 
   /** 选中文字的开分支提问；分支锚定到被选中文字所在的那条回答。 */
   const submitQuestion = (question: string) => {
@@ -319,11 +331,11 @@ export function NodePage({
         </div>
       )}
 
+      {/* portal 到 body：轨道带 transform 会成为 fixed 的包含块，留在轨道内坐标会错位 */}
       {picked && (
-        <button
-          type="button"
-          className="ask-fab"
-          style={{ left: picked.centerX, top: Math.max(picked.top - 44, 12) }}
+        <AskFab
+          centerX={picked.centerX}
+          top={picked.top}
           onClick={() => {
             if (onRequestAsk) {
               // 桌面端：右栏就地提问，正文保持可见
@@ -333,9 +345,7 @@ export function NodePage({
             }
             setPending(picked.reading)
           }}
-        >
-          就这段提问
-        </button>
+        />
       )}
 
       {/* 手机端没有右栏，退回底部弹窗；桌面端提问框在右栏 */}

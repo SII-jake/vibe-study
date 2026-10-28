@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
-import { readSelection } from '../src/ui/selection'
+import { placeFloatingButton, readSelection } from '../src/ui/selection'
 
 let container: HTMLElement
 
@@ -98,5 +98,39 @@ describe('readSelection', () => {
       text: '第二轮段',
       messageId: 'm-a2',
     })
+  })
+})
+
+describe('placeFloatingButton', () => {
+  const viewport = { width: 1440, height: 900, buttonWidth: 104 }
+
+  it('选区在正文中间时按钮居中于选区', () => {
+    const pos = placeFloatingButton({ centerX: 700, top: 300 }, viewport)
+    expect(pos.centerX).toBe(700)
+    expect(pos.top).toBe(300)
+  })
+
+  it('选区贴右边缘时按钮被拉回视口内', () => {
+    // 用户指认的 bug：文字在右边缘时按钮跑出视口看不见
+    const pos = placeFloatingButton({ centerX: 1430, top: 300 }, viewport)
+    expect(pos.centerX + viewport.buttonWidth / 2).toBeLessThanOrEqual(viewport.width)
+  })
+
+  it('选区贴左边缘时按钮同样不越界', () => {
+    const pos = placeFloatingButton({ centerX: 6, top: 300 }, viewport)
+    expect(pos.centerX - viewport.buttonWidth / 2).toBeGreaterThanOrEqual(0)
+  })
+
+  it('选区贴近顶部时按钮下移，避免被视口上缘裁掉', () => {
+    const pos = placeFloatingButton({ centerX: 700, top: 2 }, viewport)
+    expect(pos.top).toBeGreaterThanOrEqual(0)
+  })
+
+  it('按钮比视口还宽时（极窄屏）也不产生负坐标', () => {
+    const pos = placeFloatingButton(
+      { centerX: 100, top: 300 },
+      { width: 80, height: 600, buttonWidth: 104 },
+    )
+    expect(pos.centerX).toBeGreaterThanOrEqual(0)
   })
 })

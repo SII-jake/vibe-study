@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { type PaneView, planAsk, planPlaceChild, planPromote } from '../src/app/pane-state'
+import {
+  type PaneView,
+  planAsk,
+  planGoBack,
+  planPlaceChild,
+  planPromote,
+} from '../src/app/pane-state'
 
 const base = { centerNodeId: 'root', rightNodeId: null }
 const withRight = { centerNodeId: 'root', rightNodeId: 'a1' }
@@ -51,6 +57,26 @@ describe('planPromote', () => {
 
   it('右栏为空时原样返回', () => {
     expect(planPromote(base)).toEqual(base)
+  })
+})
+
+describe('planGoBack：返回一级 = 视口左移一格', () => {
+  it('中栏退回父级时，刚离开的那格留在右栏，而不是被清空', () => {
+    // 用户指认的 bug：点返回后右栏变空，应该显示刚才的中栏
+    expect(planGoBack(withRight, 'root')).toEqual({
+      centerNodeId: 'root',
+      rightNodeId: 'root',
+    })
+  })
+
+  it('返回后右栏应当是刚才的中栏节点，便于对照父子两级', () => {
+    const view = { centerNodeId: 'a1', rightNodeId: 'b1' }
+    expect(planGoBack(view, 'root')).toEqual({ centerNodeId: 'root', rightNodeId: 'a1' })
+  })
+
+  it('没有父级可回时原样返回，不制造空跳转', () => {
+    const view = { centerNodeId: 'root', rightNodeId: 'a1' }
+    expect(planGoBack(view, null)).toEqual(view)
   })
 })
 
