@@ -1,5 +1,6 @@
 import { isConfigured } from './config.mjs'
 import { runAgentTurn } from './agent.mjs'
+import { generateTitle } from './title.mjs'
 
 const MAX_BODY_BYTES = 1024 * 1024
 
@@ -51,6 +52,38 @@ export function createHandler(config, fetchImpl = fetch) {
         model: config.model,
         models: config.models,
       })
+      return
+    }
+
+    // 会话标题：把「提问 + 回答」压成短语；失败由前端回退到原提问。
+    if (request.method === 'POST' && url.pathname === '/api/title') {
+      if (!isConfigured(config)) {
+        sendJson(response, 503, { error: '服务端未配置模型接口' })
+        return
+      }
+
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request))
+      } catch {
+        sendJson(response, 400, { error: '请求体不是合法 JSON' })
+        return
+      }
+      if (!payload || typeof payload.question !== 'string' || payload.question.trim() === '') {
+        sendJson(response, 400, { error: 'question 必须是非空字符串' })
+        return
+      }
+
+      try {
+        const title = await generateTitle(
+          { ...config, model: resolveModel(config, payload.model) },
+          { question: payload.question, answer: payload.answer },
+          fetchImpl,
+        )
+        sendJson(response, 200, { title })
+      } catch (cause) {
+        sendJson(response, 502, { error: `生成标题失败：${cause.message}` })
+      }
       return
     }
 
