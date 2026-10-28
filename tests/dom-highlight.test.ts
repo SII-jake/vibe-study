@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
-import { clearHighlights, highlightInFragment } from '../src/ui/dom-highlight'
+import {
+  clearAnchorMarks,
+  clearHighlights,
+  highlightAnchorText,
+  highlightInFragment,
+} from '../src/ui/dom-highlight'
 
 function mount(html: string): HTMLElement {
   const root = document.createElement('div')
@@ -64,5 +69,52 @@ describe('clearHighlights', () => {
     clearHighlights(root)
     expect(root.querySelector('mark')).toBeNull()
     expect(root.textContent).toBe('利息也产生利息')
+  })
+})
+
+describe('highlightAnchorText', () => {
+  it('把分支锚点标成下划线标记，而不是高亮', () => {
+    const root = mount('<div data-fragment-index="0">利息也产生利息</div>')
+    expect(highlightAnchorText(root.firstElementChild as HTMLElement, '也产生')).toBe(true)
+    const mark = root.querySelector('mark.anchor-underline')
+    expect(mark?.textContent).toBe('也产生')
+    // 与「返回定位」的高亮是两类标记，不能混用同一个 class
+    expect(root.querySelector('mark.anchor-mark')).toBeNull()
+  })
+
+  it('原文跨行内标签时仍能标出', () => {
+    const root = mount('<div data-fragment-index="0">单利与<strong>复利</strong>的差别</div>')
+    expect(highlightAnchorText(root.firstElementChild as HTMLElement, '单利与复利')).toBe(true)
+    expect(root.querySelector('mark.anchor-underline')?.textContent).toBe('单利与复利')
+  })
+
+  it('原文不存在时返回 false 且不改动 DOM', () => {
+    const root = mount('<div data-fragment-index="0">利息也产生利息</div>')
+    expect(highlightAnchorText(root.firstElementChild as HTMLElement, '已删掉的句子')).toBe(false)
+    expect(root.querySelector('mark')).toBeNull()
+  })
+})
+
+describe('clearAnchorMarks', () => {
+  it('只拆掉下划线标记，不动高亮标记', () => {
+    const root = mount('<div data-fragment-index="0">利息也产生利息</div>')
+    const el = root.firstElementChild as HTMLElement
+    highlightAnchorText(el, '也产生')
+    highlightInFragment(el, '利息')
+    clearAnchorMarks(el)
+    // 高亮仍在，下划线已拆
+    expect(el.querySelector('mark.anchor-underline')).toBeNull()
+    expect(el.querySelector('mark.anchor-mark')).not.toBeNull()
+    expect(el.textContent).toBe('利息也产生利息')
+  })
+
+  it('与高亮清空互不波及', () => {
+    const root = mount('<div data-fragment-index="0">利息也产生利息</div>')
+    const el = root.firstElementChild as HTMLElement
+    highlightAnchorText(el, '也产生')
+    highlightInFragment(el, '利息')
+    clearHighlights(el)
+    expect(el.querySelector('mark.anchor-mark')).toBeNull()
+    expect(el.querySelector('mark.anchor-underline')).not.toBeNull()
   })
 })
