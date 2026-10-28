@@ -299,14 +299,8 @@ export function NodePage({
           </div>
         )}
 
-        {answer && !streaming && (
-          <div className="reader-foot">
-            <p className="hint">后面可以直接追问，也可以选中一段文字就那段开新分支。</p>
-            <button type="button" className="btn-ghost" onClick={() => data.regenerate(node.id)}>
-              重新生成最新回答
-            </button>
-          </div>
-        )}
+        {/* 「重新生成最新回答」按钮与操作提示已移除：按钮过大且当前用不上，
+             将来需要时重新设计入口。regenerate 仍保留给「生成回答」空态使用。 */}
       </div>
 
       {/* 右栏也要能继续追问，所以 compact 同样保留底部输入条 */}
