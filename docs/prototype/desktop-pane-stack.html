@@ -554,88 +554,41 @@
         font-size: 10.5px;
       }
 
-      /* ---------------- 开新对话：输入框在中栏 ---------------- */
+      /* ---------------- 未开对话时的中栏欢迎区 ----------------
+         输入框不在这里：它常驻底部、始终可用，与有没有会话无关。 */
 
-      body[data-mode='new-topic'] .stacknav,
-      body[data-mode='new-topic'] .depth-badge,
-      body[data-mode='new-topic'] .head-actions,
-      body[data-mode='new-topic'] .composer {
-        display: none;
-      }
-
-      .new-topic {
+      .welcome {
         display: flex;
         flex-direction: column;
         justify-content: center;
         min-height: 100%;
-        max-width: 580px;
+        max-width: 560px;
         margin: 0 auto;
-        padding: 0 0 60px;
+        padding: 0 0 40px;
+        text-align: center;
       }
 
-      .new-topic h2 {
+      .welcome h2 {
         margin: 0 0 6px;
-        font-size: 23px;
+        font-size: 21px;
         font-weight: 600;
         letter-spacing: -0.01em;
       }
 
-      .new-topic .sub {
-        margin: 0 0 20px;
+      .welcome .sub {
+        margin: 0 0 18px;
         color: var(--dim);
-        font-size: 13.5px;
+        font-size: 13px;
       }
 
-      .new-topic .box {
-        display: flex;
-        align-items: flex-end;
-        gap: 9px;
-        padding: 11px 11px 11px 15px;
-        border: 1px solid var(--line);
-        border-radius: 13px;
-        background: var(--surface);
-      }
-
-      .new-topic .box:focus-within {
-        border-color: var(--accent);
-      }
-
-      .new-topic textarea {
-        flex: 1;
-        min-height: 54px;
-        max-height: 180px;
-        padding: 2px 0;
-        border: none;
-        background: transparent;
-        color: var(--text);
-        font: inherit;
-        font-size: 14.5px;
-        line-height: 1.6;
-        resize: none;
-      }
-
-      .new-topic textarea:focus {
-        outline: none;
-      }
-
-      .new-topic textarea::placeholder {
-        color: var(--dim-2);
-      }
-
-      .new-topic .hintline {
-        margin: 7px 0 0;
-        color: var(--dim-2);
-        font-size: 10.5px;
-      }
-
-      .new-topic .examples {
+      .welcome .examples {
         display: flex;
         flex-wrap: wrap;
         gap: 7px;
-        margin-top: 18px;
+        justify-content: center;
       }
 
-      .new-topic .examples button {
+      .welcome .examples button {
         height: 28px;
         padding: 0 11px;
         border: 1px solid var(--line);
@@ -645,9 +598,16 @@
         font-size: 12px;
       }
 
-      .new-topic .examples button:hover {
+      .welcome .examples button:hover {
         border-color: var(--accent);
         color: var(--accent);
+      }
+
+      /* 没有会话时不显示栈导航与层数 */
+      body[data-session='none'] .stacknav,
+      body[data-session='none'] .depth-badge,
+      body[data-session='none'] .head-actions {
+        display: none;
       }
 
       /* ---------------- 右栏 ---------------- */
@@ -1099,12 +1059,12 @@
               <textarea
                 id="composerInput"
                 rows="1"
-                placeholder="在当前对话里继续问…（不开支线）"
+                placeholder="问点什么…"
               ></textarea>
               <button class="send" id="composerSend">提问</button>
             </div>
             <div class="composer-hint">
-              <span>选中任意一段 → 点弹出来的按钮，右栏才展开</span>
+              <span id="composerHint">选中任意一段 → 点弹出来的按钮，右栏才展开</span>
               <span>⌘⏎ 发送</span>
             </div>
           </div>
@@ -1304,12 +1264,11 @@
          ============================================================ */
 
       const state = {
-        rootId: 'root',
-        stack: ['root'],
+        // rootId 为 null 表示「还没开对话」：中栏显示欢迎区，底部输入框照常可用
+        rootId: null,
+        stack: [],
         rightNodeId: null,
         draftKey: null,
-        /** 'read' 读已有对话；'new-topic' 在中栏起一个新对话 */
-        mode: 'read',
       }
 
       const midId = () => state.stack[state.stack.length - 1]
@@ -1321,7 +1280,6 @@
         state.stack = saved.stack
         state.rightNodeId = saved.rightNodeId && node(saved.rightNodeId) ? saved.rightNodeId : null
         state.draftKey = saved.draftKey && DRAFTS[saved.draftKey] ? saved.draftKey : null
-        state.mode = saved.mode === 'new-topic' ? 'new-topic' : 'read'
       }
 
       function persistSession() {
@@ -1330,7 +1288,6 @@
           stack: state.stack,
           rightNodeId: state.rightNodeId,
           draftKey: state.draftKey,
-          mode: state.mode,
         })
       }
 
@@ -1348,7 +1305,8 @@
         renderMain()
         renderChild()
         document.body.dataset.right = state.draftKey || state.rightNodeId ? 'open' : 'empty'
-        document.body.dataset.mode = state.mode
+        // 没有会话时只影响顶部导航显隐，输入框始终在
+        document.body.dataset.session = state.stack.length === 0 ? 'none' : 'open'
         persistSession()
       }
 
@@ -1551,109 +1509,52 @@
       }
 
       function renderMain() {
-        const cur = mid()
         const inner = $('mainInner')
         inner.textContent = ''
-        if (state.mode === 'new-topic') {
-          renderNewTopic(inner)
+        const cur = mid()
+        // 还没开会话：中栏只放引导，输入框在底部常驻
+        if (!cur) {
+          renderWelcome(inner)
           return
         }
-        if (!cur) return
         renderNodeBody(inner, cur, { pane: 'main', showFragAct: true, mainQuestion: true })
       }
 
-      /** 中栏起新对话：输入框就在这里，不先建空节点。 */
-      function renderNewTopic(inner) {
+      function renderWelcome(inner) {
         const wrap = document.createElement('div')
-        wrap.className = 'new-topic'
+        wrap.className = 'welcome'
 
         const h = document.createElement('h2')
         h.textContent = '想学点什么？'
 
         const sub = document.createElement('p')
         sub.className = 'sub'
-        sub.textContent = '开一个新主题。回答里的任意一段都能单独展开成一条支线。'
+        sub.textContent = '直接在下面提问。发出第一句话时才创建会话。'
 
-        const box = document.createElement('div')
-        box.className = 'box'
-
-        const ta = document.createElement('textarea')
-        ta.id = 'newTopicInput'
-        ta.rows = 2
-        ta.placeholder = '例如：为什么顺风骑车也感觉吃力？'
-
-        const send = document.createElement('button')
-        send.className = 'send'
-        send.textContent = '开始'
-        send.disabled = true
-
-        ta.addEventListener('input', () => {
-          send.disabled = ta.value.trim() === ''
-        })
-        ta.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            startTopic()
-          }
-          if (event.key === 'Escape') {
-            exitNewTopic()
-          }
-        })
-        send.addEventListener('click', startTopic)
-
-        box.append(ta, send)
-
-        const hint = document.createElement('p')
-        hint.className = 'hintline'
-        hint.textContent = 'Enter 开始，Shift+Enter 换行，Esc 取消'
-
-        wrap.append(h, sub, box, hint)
-
-        // 示例：点一下填进输入框，不直接提交
         const examples = document.createElement('div')
         examples.className = 'examples'
         for (const text of ['复利和时间的关系', 'Transformer 的注意力怎么算', '为什么咖啡因会让人睡不着']) {
           const chip = document.createElement('button')
           chip.textContent = text
           chip.addEventListener('click', () => {
-            ta.value = text
-            send.disabled = false
-            ta.focus()
+            const input = $('composerInput')
+            input.value = text
+            input.focus()
           })
           examples.append(chip)
         }
-        wrap.append(examples)
 
+        wrap.append(h, sub, examples)
         inner.append(wrap)
-        requestAnimationFrame(() => ta.focus())
       }
 
-      function enterNewTopic() {
-        state.mode = 'new-topic'
-        state.rightNodeId = null
-        state.draftKey = null
-        focusPane = null
-        delete document.body.dataset.focus
-        paint()
-      }
-
-      function exitNewTopic() {
-        state.mode = 'read'
-        paint()
-      }
-
-      /** 真正建主题：先落节点、再起流式，中栏立刻切到新对话 */
-      function startTopic() {
-        const ta = $('newTopicInput')
-        const text = (ta?.value || '').trim()
-        if (!text) return
-
+      /** 新建会话：提交第一句话那一刻才落节点，随后立刻出现在左栏。 */
+      function createSession(question) {
         const id = nextId()
         addNode({
           id,
-          question: text,
+          question,
           fragments: [],
-          // 首轮回答只走 streaming，不进 turns：问题已经在标题里
           streaming: { text: '' },
         })
 
@@ -1661,17 +1562,17 @@
         state.stack = [id]
         state.rightNodeId = null
         state.draftKey = null
-        state.mode = 'read'
         paint()
 
         const el = $('turnStream')
-        streamInto(el, buildAnswerText(text, null), () => {
+        streamInto(el, buildAnswerText(question, null), () => {
           const cur = node(id)
           if (!cur) return
           cur.streaming = null
-          cur.fragments = buildFragments(text, null)
+          cur.fragments = buildFragments(question, null)
           paint()
         })
+        return id
       }
 
       function renderChild() {
@@ -2071,10 +1972,16 @@
         const input = $('composerInput')
         const text = input.value.trim()
         if (!text) return
-        const cur = mid()
-        if (!cur) return
 
         input.value = ''
+
+        // 还没有会话：第一句话就建会话（对齐 synergy 的 isNewSession = !params.id）
+        const cur = mid()
+        if (!cur) {
+          createSession(text)
+          return
+        }
+
         cur.turns = cur.turns || []
         cur.turns.push({ question: text, phase: 'stream', text: '', fragments: [] })
         paint()
@@ -2252,8 +2159,17 @@
         toastTimer = setTimeout(() => el.classList.remove('show'), 1500)
       }
 
-      // 左栏按钮只把中栏切到「开新对话」，真提交时才建节点
-      $('newTopic').addEventListener('click', enterNewTopic)
+      // 左栏「新主题」= 回到未开会的欢迎态，输入框仍在底部；真提交时才建会话
+      $('newTopic').addEventListener('click', () => {
+        state.rootId = null
+        state.stack = []
+        state.rightNodeId = null
+        state.draftKey = null
+        focusPane = null
+        delete document.body.dataset.focus
+        paint()
+        requestAnimationFrame(() => $('composerInput')?.focus())
+      })
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
