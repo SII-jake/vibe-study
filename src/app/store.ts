@@ -140,6 +140,11 @@ export function useLearnData(): LearnData {
             setStreamingStatus(null)
           },
           onStatus: (status) => setStreamingStatus(status),
+          // 模型先说了一句又决定调工具：那段话不是答案，清掉已显示的增量
+          onReset: () => {
+            accumulated = ''
+            setStreamingText('')
+          },
         })
         if (accumulated.trim() === '') {
           setError('模型没有返回内容，换个模型名或稍后重试。')

@@ -271,4 +271,67 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
     expect(text).toContain('服务暂时异常')
     expect(text).toContain('[DONE]')
   })
+
+  /** 把若干段 SSE 文本包成流式响应，模拟会分块下发的上游。 */
+  function sseUpstream(chunks) {
+    return new Response(sseStream(chunks), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }
+
+  function contentChunk(text) {
+    return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`
+  }
+
+  /** 工具轮次 + 分块最终回答的上游桩。 */
+  function agentFetchStream() {
+    let step = 0
+    return vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        step += 1
+        if (step === 1) {
+          return sseUpstream([
+            `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"query":"复利 最新"}' } }] } }] })}\n\n`,
+            'data: [DONE]\n\n',
+          ])
+        }
+        return sseUpstream([
+          contentChunk('带引用的'),
+          contentChunk('回答'),
+          contentChunk('。'),
+          'data: [DONE]\n\n',
+        ])
+      }
+      if (urlStr.includes('serper.dev')) {
+        return jsonResponse({
+          organic: [{ title: '结果一', link: 'https://a.com', snippet: '摘要' }],
+        })
+      }
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+  }
+
+  it('最终回答按增量分段推给前端，而不是攒成一条整文', async () => {
+    running = await serve(baseConfig({ serperKey: 's', jinaKey: 'j' }), agentFetchStream())
+    const response = await fetch(`${running.base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: '复利' }] }),
+    })
+    const text = await response.text()
+
+    // 关键：三段内容各自成为独立的 SSE 事件，前端才能边收边渲染
+    const deltaEvents = text
+      .split('\n\n')
+      .filter((block) => block.includes('"delta"'))
+      .map((block) => block.replace(/^data: /, ''))
+    expect(deltaEvents).toHaveLength(3)
+    expect(deltaEvents.map((event) => JSON.parse(event).choices[0].delta.content)).toEqual([
+      '带引用的',
+      '回答',
+      '。',
+    ])
+  })
 })

@@ -334,4 +334,119 @@ describe('runAgentTurn', () => {
     expect(byId.r0).toContain('正文')
     expect(byId.r1).toMatch(/失败|http/)
   })
+
+  /** 把若干段 SSE 文本包成一个流式响应，模拟 OpenAI 兼容上游。 */
+  function sseResponse(chunks) {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+        controller.close()
+      },
+    })
+    return new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }
+
+  function contentChunk(text) {
+    return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`
+  }
+
+  it('最终回答按增量回调，而不是等全文到齐再一次性返回', async () => {
+    const fetchImpl = vi.fn(async () => {
+      return sseResponse([contentChunk('复利'), contentChunk('是'), contentChunk('利滚利'), 'data: [DONE]\n\n'])
+    })
+
+    const deltas = []
+    const result = await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: '复利是什么' }],
+      fetchImpl,
+      () => {},
+      (delta) => deltas.push(delta),
+    )
+
+    // 关键：必须是分多次回调，前端才能边收边渲染
+    expect(deltas).toEqual(['复利', '是', '利滚利'])
+    expect(result.content).toBe('复利是利滚利')
+  })
+
+  it('流式请求里带上 stream: true，否则上游不会分块返回', async () => {
+    const fetchImpl = vi.fn(async () => sseResponse([contentChunk('x'), 'data: [DONE]\n\n']))
+    await runAgentTurn(agentConfig, [{ role: 'user', content: 'q' }], fetchImpl, () => {}, () => {})
+    const [, init] = fetchImpl.mock.calls[0]
+    expect(JSON.parse(init.body).stream).toBe(true)
+  })
+
+  it('工具轮次的增量流仍能解析出 tool_calls 并执行', async () => {
+    // 工具调用在流式协议里也是分片下发的（id/name/arguments 分开）
+    const toolStream = sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'search', arguments: '{"query":' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"复利定义"}' } }] } }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ])
+    const finalStream = sseResponse([contentChunk('答完了'), 'data: [DONE]\n\n'])
+
+    let step = 0
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        step += 1
+        return step === 1 ? toolStream : finalStream
+      }
+      if (urlStr.includes('serper.dev')) return jsonResponse(SERPER_BODY)
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+
+    const steps = []
+    const result = await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: 'x' }],
+      fetchImpl,
+      (s) => steps.push(s),
+      () => {},
+    )
+
+    // 分片拼回的参数必须完整，否则搜索词会变成残缺的 JSON
+    expect(steps).toEqual([{ tool: 'search', detail: '复利定义' }])
+    expect(result.content).toBe('答完了')
+  })
+
+  it('工具轮次里模型先说的话不算最终答案，需通知前端清掉已显示的增量', async () => {
+    // 模型可能先说一句"我查一下"，随后才调工具；这段文字不能留在答案里
+    const talkThenTool = sseResponse([
+      contentChunk('我先查一下。'),
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"query":"x"}' } }] } }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ])
+    const finalStream = sseResponse([contentChunk('真正的答案'), 'data: [DONE]\n\n'])
+
+    let step = 0
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        step += 1
+        return step === 1 ? talkThenTool : finalStream
+      }
+      if (urlStr.includes('serper.dev')) return jsonResponse(SERPER_BODY)
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+
+    let resets = 0
+    const result = await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: 'x' }],
+      fetchImpl,
+      () => {},
+      () => {},
+      () => {
+        resets += 1
+      },
+    )
+
+    expect(resets).toBeGreaterThanOrEqual(1)
+    expect(result.content).toBe('真正的答案')
+  })
 })

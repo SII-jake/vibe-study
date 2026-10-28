@@ -122,6 +122,8 @@ export function createHandler(config, fetchImpl = fetch) {
       })
       const writeEvent = (data) => response.write(`data: ${JSON.stringify(data)}\n\n`)
       try {
+        /** 已经推给前端的增量文本，用于判断是否需要在收尾补一条兜底文案 */
+        let streamed = ''
         const result = await runAgentTurn(
           { ...config, model },
           payload.messages,
@@ -135,10 +137,24 @@ export function createHandler(config, fetchImpl = fetch) {
                   : null
             if (label) writeEvent({ status: label })
           },
+          // 增量直接透传：前端因此边收边渲染，而不是等全文到齐再看一次闪现
+          (delta) => {
+            if (controller.signal.aborted) return
+            streamed += delta
+            writeEvent({ choices: [{ delta: { content: delta } }] })
+          },
+          // 模型「先说了话又决定调工具」：那段话不是答案，让前端清掉已显示部分
+          () => {
+            if (controller.signal.aborted) return
+            streamed = ''
+            writeEvent({ reset: true })
+          },
         )
         if (controller.signal.aborted) return
-        const content = result.content.trim() === '' ? '这次没有得到回答，再试一次。' : result.content
-        writeEvent({ choices: [{ delta: { content } }] })
+        // 一个增量都没吐出来（如上游直接空回）时补一条兜底，避免界面空白
+        if (streamed.trim() === '' && result.content.trim() === '') {
+          writeEvent({ choices: [{ delta: { content: '这次没有得到回答，再试一次。' } }] })
+        }
       } catch {
         writeEvent({ choices: [{ delta: { content: '服务暂时异常，请稍后重试。' } }] })
       }

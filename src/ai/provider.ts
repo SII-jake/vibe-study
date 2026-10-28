@@ -12,6 +12,12 @@ export interface StreamChatInput {
   onDelta: (delta: string) => void
   /** 服务端推送的工具动作（如"正在搜索：xxx"）；可选 */
   onStatus?: (status: string) => void
+  /**
+   * 服务端要求清空已显示的增量。
+   * 模型可能先吐一句"我查一下"再决定调工具，那段话不是最终答案，
+   * 服务端会发 reset 让前端把已渲染的部分丢掉。
+   */
+  onReset?: () => void
   signal: AbortSignal
   fetchImpl?: typeof fetch
 }
@@ -20,6 +26,8 @@ interface StreamChunk {
   choices?: Array<{ delta?: { content?: string } }>
   /** 工具动作说明，非 OpenAI 字段，仅本服务使用 */
   status?: string
+  /** 清空已显示增量的信号，非 OpenAI 字段，仅本服务使用 */
+  reset?: boolean
 }
 
 /** 调用本机服务端的 /api/chat，由服务端注入密钥并转发上游。 */
@@ -52,6 +60,10 @@ export async function streamChat(input: StreamChatInput): Promise<void> {
     for (const event of sse.push(chunk)) {
       if (event.data === '[DONE]') return
       const parsed = JSON.parse(event.data) as StreamChunk
+      if (parsed.reset) {
+        input.onReset?.()
+        continue
+      }
       if (parsed.status) {
         input.onStatus?.(parsed.status)
         continue
