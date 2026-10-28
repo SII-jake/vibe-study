@@ -121,22 +121,29 @@ export async function runAgentTurn(config, messages, fetchImpl = fetch, onStep =
       tool_calls: toolCalls,
     })
 
-    for (const toolCall of toolCalls) {
-      const name = toolCall.function?.name ?? ''
-      const args = parseArguments(toolCall.function?.arguments)
-      onStep({ tool: name, detail: String(args.query ?? args.url ?? '') })
-      if (name === 'read_url') {
-        const source = String(args.url ?? '').trim()
-        if (source) readSources.add(source)
-      }
-      let result
-      try {
-        result = await executeTool(config, name, args, fetchImpl)
-      } catch (cause) {
-        result = `工具执行失败：${cause.message}`
-      }
-      history.push({ role: 'tool', tool_call_id: toolCall.id, content: String(result) })
-    }
+    // 同一轮的工具调用互不依赖（模型一次给出的多个搜索/读页面），并发执行。
+    // 串行会让 N 个请求的耗时相加，是长回答变慢的主要来源之一。
+    const results = await Promise.all(
+      toolCalls.map(async (toolCall) => {
+        const name = toolCall.function?.name ?? ''
+        const args = parseArguments(toolCall.function?.arguments)
+        onStep({ tool: name, detail: String(args.query ?? args.url ?? '') })
+        if (name === 'read_url') {
+          const source = String(args.url ?? '').trim()
+          if (source) readSources.add(source)
+        }
+        try {
+          return await executeTool(config, name, args, fetchImpl)
+        } catch (cause) {
+          return `工具执行失败：${cause.message}`
+        }
+      }),
+    )
+
+    // 按 tool_calls 原顺序回填，结果与 tool_call_id 一一对应，不受完成先后影响。
+    toolCalls.forEach((toolCall, index) => {
+      history.push({ role: 'tool', tool_call_id: toolCall.id, content: String(results[index]) })
+    })
   }
 
   // 理论上到不了这里；兜底不再循环。

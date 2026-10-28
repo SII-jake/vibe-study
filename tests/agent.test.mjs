@@ -228,4 +228,110 @@ describe('runAgentTurn', () => {
     // 摘要来自搜索返回，不是 read_url 读取，不应被当作"已读来源"注入
     expect(hasSourceHint).toBe(false)
   })
+
+  /** 同一轮里并行发多个 read_url 调用的响应。 */
+  function parallelReadCalls(urls) {
+    return {
+      choices: [
+        {
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: urls.map((url, index) => ({
+              id: `r${index}`,
+              type: 'function',
+              function: { name: 'read_url', arguments: JSON.stringify({ url }) },
+            })),
+          },
+        },
+      ],
+    }
+  }
+
+  it('同一轮的多个工具调用并发执行，而不是逐个排队', async () => {
+    // 每个 read_url 阻塞 120ms；串行会累加到 360ms 以上
+    let inFlight = 0
+    let peak = 0
+    const urls = ['https://a.com/1', 'https://a.com/2', 'https://a.com/3']
+    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: '并发完成' } }] }
+    let llmStep = 0
+
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        llmStep += 1
+        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+      }
+      if (urlStr.includes('r.jina.ai')) {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        inFlight -= 1
+        return new Response(`正文 ${urlStr}`, { status: 200 })
+      }
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+
+    const started = Date.now()
+    await runAgentTurn(agentConfig, [{ role: 'user', content: '查几个页面' }], fetchImpl, () => {})
+    const elapsed = Date.now() - started
+
+    expect(peak).toBeGreaterThanOrEqual(2)
+    expect(elapsed).toBeLessThan(360)
+  })
+
+  it('并发执行的多个工具调用，回填仍按 tool_call_id 一一对应', async () => {
+    const urls = ['https://b.com/1', 'https://b.com/2']
+    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }
+    let llmStep = 0
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        llmStep += 1
+        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+      }
+      // 第二个更慢：结果必须回到自己的 tool_call_id，不能按完成先后错位
+      const delay = urlStr.includes('/2') ? 100 : 10
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      return new Response(`正文 ${urlStr}`, { status: 200 })
+    })
+
+    await runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})
+
+    const llmCalls = fetchImpl.mock.calls
+      .filter(([u]) => String(u).includes('chat/completions'))
+      .map(([, init]) => JSON.parse(init.body))
+    const toolMsgs = llmCalls[1].messages.filter((m) => m.role === 'tool')
+
+    expect(toolMsgs).toHaveLength(2)
+    const byId = Object.fromEntries(toolMsgs.map((m) => [m.tool_call_id, m.content]))
+    expect(byId.r0).toContain('/1')
+    expect(byId.r1).toContain('/2')
+  })
+
+  it('并发时单个工具失败不影响其它工具的回填', async () => {
+    const urls = ['https://c.com/ok', 'file:///etc/passwd']
+    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }
+    let llmStep = 0
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        llmStep += 1
+        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+      }
+      return new Response('正文', { status: 200 })
+    })
+
+    await runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})
+
+    const llmCalls = fetchImpl.mock.calls
+      .filter(([u]) => String(u).includes('chat/completions'))
+      .map(([, init]) => JSON.parse(init.body))
+    const toolMsgs = llmCalls[1].messages.filter((m) => m.role === 'tool')
+    const byId = Object.fromEntries(toolMsgs.map((m) => [m.tool_call_id, m.content]))
+
+    expect(byId.r0).toContain('正文')
+    expect(byId.r1).toMatch(/失败|http/)
+  })
 })
