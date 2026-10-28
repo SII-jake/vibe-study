@@ -449,4 +449,106 @@ describe('runAgentTurn', () => {
     expect(resets).toBeGreaterThanOrEqual(1)
     expect(result.content).toBe('真正的答案')
   })
+
+  /**
+   * 上游发完 [DONE] 常常不会立刻断开连接。
+   * 若读取提前结束却不释放 body，连接带着未读完数据回到池子，
+   * 下一轮请求（工具循环里很常见）复用这条坏连接就会 fetch failed。
+   */
+  function trackingSseResponse(chunks) {
+    const encoder = new TextEncoder()
+    let cancelled = false
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+        // 刻意不 close：模拟上游保持连接但不再发数据
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return {
+      response: new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+      wasCancelled: () => cancelled,
+    }
+  }
+
+  it('收到 [DONE] 提前结束时释放响应体，避免连接带着残数据回到池子', async () => {
+    const tracked = trackingSseResponse([contentChunk('答案'), 'data: [DONE]\n\n'])
+    const fetchImpl = vi.fn(async () => tracked.response)
+
+    const result = await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: 'q' }],
+      fetchImpl,
+      () => {},
+      () => {},
+    )
+
+    expect(result.content).toBe('答案')
+    // 关键：body 必须被 cancel，否则下一次 fetch 会在这条坏连接上失败
+    expect(tracked.wasCancelled()).toBe(true)
+  })
+
+  /**
+   * 上游会空闲回收 keep-alive 连接；连接池把新请求发到一条刚要关闭的
+   * socket 上时，undici 抛 `TypeError: fetch failed` / `terminated`。
+   * 工具循环里两轮之间隔着搜索与读网页，最容易撞上。
+   * 这类错误对幂等的模型调用应该重试，而不是直接把「服务暂时异常」甩给用户。
+   */
+  it('上游连接抖动时重试，而不是立刻让整轮失败', async () => {
+    let attempts = 0
+    const fetchImpl = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('fetch failed')
+      return sseResponse([contentChunk('答案'), 'data: [DONE]\n\n'])
+    })
+
+    const result = await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: 'q' }],
+      fetchImpl,
+      () => {},
+      () => {},
+    )
+
+    expect(attempts).toBe(2)
+    expect(result.content).toBe('答案')
+  })
+
+  it('重试不会把已经吐给前端的增量重复一遍', async () => {
+    // 第一轮成功吐了内容后才失败的场景不存在（失败发生在请求阶段），
+    // 这里确认重试路径下 onDelta 只收到最终那一次的内容
+    let attempts = 0
+    const fetchImpl = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('terminated')
+      return sseResponse([contentChunk('完整'), contentChunk('答案'), 'data: [DONE]\n\n'])
+    })
+
+    const deltas = []
+    await runAgentTurn(
+      agentConfig,
+      [{ role: 'user', content: 'q' }],
+      fetchImpl,
+      () => {},
+      (d) => deltas.push(d),
+    )
+
+    expect(deltas).toEqual(['完整', '答案'])
+  })
+
+  it('重试有上限，连续失败仍会抛错（不无限重试）', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    await expect(
+      runAgentTurn(agentConfig, [{ role: 'user', content: 'q' }], fetchImpl, () => {}, () => {}),
+    ).rejects.toThrow(/fetch failed/)
+    // 有限次尝试，避免把上游故障放大成请求风暴
+    expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(3)
+  })
 })

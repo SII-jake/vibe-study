@@ -66,7 +66,56 @@ function createSseParser() {
 }
 
 /**
- * 调一次模型。
+ * 连接层抖动。
+ *
+ * 上游（及中间的 TLS / 反向代理）会空闲回收 keep-alive 连接；连接池把新请求
+ * 发到一条刚要关闭的 socket 上时，undici 抛 `TypeError: fetch failed` 或
+ * `TypeError: terminated`。工具循环两轮之间隔着搜索与读网页，几十秒不碰上游，
+ * 最容易撞上。这类错误与请求内容无关，属于可安全重试的抖动。
+ */
+function isRetryableNetworkError(cause) {
+  if (!(cause instanceof Error)) return false
+  return /fetch failed|terminated|ECONNRESET|EPIPE|socket hang up|other side closed/i.test(
+    cause.message,
+  )
+}
+
+/** 重试之间的退避；抖动通常在几十毫秒内自愈，不需要长等。 */
+function retryDelay(attempt) {
+  return new Promise((resolve) => setTimeout(resolve, attempt * 120))
+}
+
+/**
+ * 调一次模型（带抖动重试）。
+ *
+ * 只在「还没往外吐过任何增量」时重试：已经吐过内容再重来一遍，
+ * 前端会看到重复文字。重试次数有上限，避免上游故障被放大成请求风暴。
+ */
+async function callLlm(config, messages, fetchImpl, onDelta = () => {}) {
+  const MAX_ATTEMPTS = 3
+  let lastError
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    let emitted = false
+    try {
+      return await callLlmOnce(config, messages, fetchImpl, (delta) => {
+        emitted = true
+        onDelta(delta)
+      })
+    } catch (cause) {
+      lastError = cause
+      const canRetry =
+        !emitted && isRetryableNetworkError(cause) && attempt < MAX_ATTEMPTS
+      if (!canRetry) throw cause
+      await retryDelay(attempt)
+    }
+  }
+
+  throw lastError
+}
+
+/**
+ * 单次模型调用。
  *
  * 默认走流式：边收边通过 onDelta 回调，前端因此能增量渲染，
  * 而不是等全文到齐再一次性出现。工具调用在流式协议里同样是分片的
@@ -74,7 +123,7 @@ function createSseParser() {
  *
  * 上游若返回非 SSE（含测试桩），退化为一次性 JSON 解析，行为与过去一致。
  */
-async function callLlm(config, messages, fetchImpl, onDelta = () => {}) {
+async function callLlmOnce(config, messages, fetchImpl, onDelta = () => {}) {
   const response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -107,38 +156,53 @@ async function callLlm(config, messages, fetchImpl, onDelta = () => {}) {
   let content = ''
   let finished = false
 
-  while (!finished) {
-    const { done, value } = await reader.read()
-    if (done) break
-    for (const data of sse.push(decoder.decode(value, { stream: true }))) {
-      if (data === '[DONE]') {
-        finished = true
-        break
+  try {
+    while (!finished) {
+      const { done, value } = await reader.read()
+      if (done) break
+      for (const data of sse.push(decoder.decode(value, { stream: true }))) {
+        if (data === '[DONE]') {
+          finished = true
+          break
+        }
+        let parsed
+        try {
+          parsed = JSON.parse(data)
+        } catch {
+          // 上游偶发非 JSON 心跳行，跳过而不是让整轮失败
+          continue
+        }
+        const delta = parsed.choices?.[0]?.delta
+        if (!delta) continue
+        if (typeof delta.content === 'string' && delta.content !== '') {
+          content += delta.content
+          onDelta(delta.content)
+        }
+        for (const piece of delta.tool_calls ?? []) {
+          const index = piece.index ?? 0
+          const slot = (toolCalls[index] ??= {
+            id: '',
+            type: 'function',
+            function: { name: '', arguments: '' },
+          })
+          if (piece.id) slot.id = piece.id
+          if (piece.function?.name) slot.function.name += piece.function.name
+          if (piece.function?.arguments) slot.function.arguments += piece.function.arguments
+        }
       }
-      let parsed
-      try {
-        parsed = JSON.parse(data)
-      } catch {
-        // 上游偶发非 JSON 心跳行，跳过而不是让整轮失败
-        continue
-      }
-      const delta = parsed.choices?.[0]?.delta
-      if (!delta) continue
-      if (typeof delta.content === 'string' && delta.content !== '') {
-        content += delta.content
-        onDelta(delta.content)
-      }
-      for (const piece of delta.tool_calls ?? []) {
-        const index = piece.index ?? 0
-        const slot = (toolCalls[index] ??= {
-          id: '',
-          type: 'function',
-          function: { name: '', arguments: '' },
-        })
-        if (piece.id) slot.id = piece.id
-        if (piece.function?.name) slot.function.name += piece.function.name
-        if (piece.function?.arguments) slot.function.arguments += piece.function.arguments
-      }
+    }
+  } finally {
+    /*
+     * 必须释放响应体。
+     * 上游发完 [DONE] 往往不会立刻断开，这里若只是 break，连接会带着
+     * 未读完的数据回到连接池；工具循环紧接着再发请求复用这条坏连接，
+     * 就会以 `TypeError: fetch failed` 失败 —— 表现为前端收到
+     * 「服务暂时异常」。cancel 让底层 socket 被丢弃而不是复用。
+     */
+    try {
+      await reader.cancel()
+    } catch {
+      // 流已正常结束或已关闭，取消失败无需处理
     }
   }
 

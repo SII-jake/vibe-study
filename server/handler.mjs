@@ -155,7 +155,11 @@ export function createHandler(config, fetchImpl = fetch) {
         if (streamed.trim() === '' && result.content.trim() === '') {
           writeEvent({ choices: [{ delta: { content: '这次没有得到回答，再试一次。' } }] })
         }
-      } catch {
+      } catch (cause) {
+        // 不能静默吞错：之前这里没有日志，出问题只能靠猜
+        console.error('[study-api] /api/chat agent 失败:', cause?.stack ?? cause)
+        const reason = cause instanceof Error ? cause.message : String(cause)
+        writeEvent({ error: reason })
         writeEvent({ choices: [{ delta: { content: '服务暂时异常，请稍后重试。' } }] })
       }
       response.write('data: [DONE]\n\n')
