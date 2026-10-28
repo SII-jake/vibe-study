@@ -551,4 +551,63 @@ describe('runAgentTurn', () => {
     // 有限次尝试，避免把上游故障放大成请求风暴
     expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(3)
   })
+
+  it('上游请求挂起超过超时上限时中止并触发重试，不再让用户无限等待', async () => {
+    let attempts = 0
+    const fetchImpl = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) return new Promise(() => {}) // 第一次永不返回（挂起）
+      return sseResponse([contentChunk('答案'), 'data: [DONE]\n\n'])
+    })
+
+    const started = Date.now()
+    const result = await runAgentTurn(
+      { ...agentConfig, llmTimeoutMs: 80 },
+      [{ role: 'user', content: 'q' }],
+      fetchImpl,
+      () => {},
+      () => {},
+    )
+
+    expect(attempts).toBe(2)
+    expect(result.content).toBe('答案')
+    expect(Date.now() - started).toBeLessThan(1500)
+  })
+
+  it('每次挂起也算一次尝试，全部挂起时仍按上限抛错', async () => {
+    const fetchImpl = vi.fn(async () => new Promise(() => {}))
+    const started = Date.now()
+    await expect(
+      runAgentTurn(
+        { ...agentConfig, llmTimeoutMs: 60 },
+        [{ role: 'user', content: 'q' }],
+        fetchImpl,
+        () => {},
+        () => {},
+      ),
+    ).rejects.toThrow()
+    expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(3)
+    expect(Date.now() - started).toBeLessThan(1500)
+  })
+
+  it('超时后重试的那次再吐增量，两次的文字不会重复出现', async () => {
+    let attempts = 0
+    const fetchImpl = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) return new Promise(() => {})
+      return sseResponse([contentChunk('完整'), contentChunk('答案'), 'data: [DONE]\n\n'])
+    })
+    const deltas = []
+    await runAgentTurn(
+      { ...agentConfig, llmTimeoutMs: 60 },
+      [{ role: 'user', content: 'q' }],
+      fetchImpl,
+      () => {},
+      (d) => deltas.push(d),
+    )
+    expect(deltas).toEqual(['完整', '答案'])
+  })
+
+  // 默认超时值属于配置层约定，不由 agent 决定在测试里；
+  // config 解析的用例见 tests/server.test.mjs
 })

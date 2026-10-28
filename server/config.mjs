@@ -43,7 +43,19 @@ export function loadServerConfig(source = process.env) {
     serperBase: stripSlash(source.SERPER_BASE ?? 'https://google.serper.dev'),
     jinaKey: (source.JINA_KEY ?? '').trim(),
     jinaBase: stripSlash(source.JINA_BASE ?? 'https://r.jina.ai'),
+    /** 单次上游请求的超时上限（ms）。模型冷启会慢，但挂起的请求不能无限等。 */
+    llmTimeoutMs: parseTimeoutMs(source.LLM_TIMEOUT_MS),
   }
+}
+
+const DEFAULT_LLM_TIMEOUT_MS = 60_000
+
+/** 合法的正值毫秒数就采用；缺省或非法输入一律落回默认，不静默变体。 */
+function parseTimeoutMs(raw) {
+  if (raw === undefined || raw === '') return DEFAULT_LLM_TIMEOUT_MS
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_LLM_TIMEOUT_MS
+  return Math.round(value)
 }
 
 /** 工具端点只去尾斜杠，不做版本补齐。 */

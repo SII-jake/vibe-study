@@ -121,17 +121,45 @@ async function callLlm(config, messages, fetchImpl, onDelta = () => {}) {
  * 而不是等全文到齐再一次性出现。工具调用在流式协议里同样是分片的
  * （id / name / arguments 分多条下发），这里按 index 拼回完整结构。
  *
+ * 请求整体配有超时：挂起的请求（上游卡住不收发数据）会被中止，
+ * 以「可重试的连接抖动」形式回到调用方，走有限次重试，不再让用户无限等。
+ *
  * 上游若返回非 SSE（含测试桩），退化为一次性 JSON 解析，行为与过去一致。
  */
 async function callLlmOnce(config, messages, fetchImpl, onDelta = () => {}) {
-  const response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({ model: config.model, messages, tools: TOOL_DEFS, stream: true }),
-  })
+  // config.llmTimeoutMs 缺失时给一个保守下限；默认值在 config 解析里定
+  const timeoutMs = config.llmTimeoutMs > 0 ? config.llmTimeoutMs : 60_000
+
+  /*
+   * 整体超时不能依赖上游 fetch 是否尊重 AbortSignal：
+   * 有的实现（包括部分测试桩和异常路径）会忽略 signal 仍挂起。
+   * 因此用一层 Promise.race 兜底 —— 超过 timeoutMs 未收到响应，
+   * 就以可重试的连接抖动形式上抛，进入有限次重试。
+   */
+  const timeoutError = new Error(`fetch failed: 上游请求超过 ${timeoutMs}ms 未响应`)
+  let response
+  try {
+    response = await Promise.race([
+      fetchImpl(`${config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({ model: config.model, messages, tools: TOOL_DEFS, stream: true }),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(timeoutError), timeoutMs)
+      }),
+    ])
+  } catch (cause) {
+    if (cause === timeoutError) throw cause
+    if (cause?.name === 'TimeoutError' || /timed out|timeout/i.test(cause?.message ?? '')) {
+      throw new Error(`fetch failed: 上游请求超过 ${timeoutMs}ms 未响应`)
+    }
+    throw cause
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
