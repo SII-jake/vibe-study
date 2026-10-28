@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { descendantCount, latestAnswer, type LearnNode } from '../domain/tree'
+import { descendantCount, latestAnswer, nodeLabel, type LearnNode } from '../domain/tree'
 import type { LearnData } from '../app/store'
 
 export interface SessionListProps {
@@ -7,6 +6,8 @@ export interface SessionListProps {
   /** 当前打开会话的根节点 id，用于高亮；未打开时为 null */
   activeRootId: string | null
   onOpen(nodeId: string): void
+  /** 回到「新会话」起始页；输入框常驻中栏，不在左栏 */
+  onNewSession(): void
   onOpenSettings(): void
 }
 
@@ -20,17 +21,18 @@ function preview(node: LearnNode): string {
   return text.slice(0, 60)
 }
 
-/** 会话列表：在桌面版常驻左侧，在手机版作为可收起的抽屉复用。 */
-export function SessionList({ data, activeRootId, onOpen, onOpenSettings }: SessionListProps) {
-  const [topic, setTopic] = useState('')
+/**
+ * 会话列表：只列会话与切换。
+ * 新建会话的输入框不在这里 —— 它常驻中栏，发出第一句话时才建会话。
+ */
+export function SessionList({
+  data,
+  activeRootId,
+  onOpen,
+  onNewSession,
+  onOpenSettings,
+}: SessionListProps) {
   const roots = data.nodes.filter((node) => node.parentId === null)
-
-  const submit = () => {
-    const trimmed = topic.trim()
-    if (trimmed === '') return
-    setTopic('')
-    onOpen(data.createTopic(trimmed))
-  }
 
   return (
     <div className="session-list">
@@ -41,21 +43,9 @@ export function SessionList({ data, activeRootId, onOpen, onOpenSettings }: Sess
         </button>
       </header>
 
-      <div className="topic-create">
-        <textarea
-          className="topic-input"
-          rows={2}
-          placeholder="想学什么？例如：什么是复利"
-          value={topic}
-          onChange={(event) => setTopic(event.target.value)}
-        />
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={topic.trim() === ''}
-          onClick={submit}
-        >
-          开始学习
+      <div className="session-actions">
+        <button type="button" className="new-session-btn" onClick={onNewSession}>
+          ＋ 新会话
         </button>
       </div>
 
@@ -79,7 +69,7 @@ export function SessionList({ data, activeRootId, onOpen, onOpenSettings }: Sess
                 className={`topic-item ${active ? 'topic-active' : ''}`}
                 onClick={() => onOpen(node.id)}
               >
-                <span className="topic-title">{node.messages[0]?.content}</span>
+                <span className="topic-title">{nodeLabel(node)}</span>
                 <span className="topic-preview">{preview(node)}</span>
                 <span className="topic-meta">{count > 0 ? `${count} 个分支` : '暂无分支'}</span>
               </button>
@@ -88,7 +78,7 @@ export function SessionList({ data, activeRootId, onOpen, onOpenSettings }: Sess
                 className="topic-delete"
                 aria-label="删除这个主题"
                 onClick={() => {
-                  if (window.confirm(`删除「${node.messages[0]?.content}」及其全部追问？`)) {
+                  if (window.confirm(`删除「${nodeLabel(node)}」及其全部追问？`)) {
                     data.remove(node.id)
                   }
                 }}
