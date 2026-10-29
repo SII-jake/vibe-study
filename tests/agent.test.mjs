@@ -22,74 +22,116 @@ const SERPER_BODY = {
 }
 
 describe('executeTool', () => {
-  it('search：以 X-API-KEY 调用 serper 并取前 5 条结果', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(SERPER_BODY))
-    const config = {
-      serperKey: 'serper-k',
-      serperBase: 'https://google.serper.dev',
-      jinaKey: '',
-      jinaBase: 'https://r.jina.ai',
-    }
-    const out = await executeTool(config, 'search', { query: '复利怎么算' }, fetchImpl)
-    const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('https://google.serper.dev/search')
-    expect(init.headers['X-API-KEY']).toBe('serper-k')
-    expect(JSON.parse(init.body)).toEqual({ q: '复利怎么算', gl: 'cn', hl: 'zh-cn' })
-    expect(out).toContain('复利 - 维基百科')
-    expect(out).toContain('https://zh.wikipedia.org/wiki/复利')
-    // 预算放宽：第 6 条也在，只到第 8 条截断
-    expect(out).toContain('第六条')
-    expect(out).not.toContain('第九条')
+  const bundleConfig = {
+    baseUrl: 'https://llm.example/v1',
+    apiKey: 'model-key',
+    model: 'm',
+    serperKey: 'serper-k',
+    serperBase: 'https://google.serper.dev',
+    jinaKey: 'jina-k',
+    jinaBase: 'https://r.jina.ai',
+  }
+
+  const ORGANIC_A = { organic: [{ title: '页面甲', link: 'https://a.com/1', snippet: '摘要甲' }] }
+  const ORGANIC_B = { organic: [{ title: '页面乙', link: 'https://b.com/2', snippet: '摘要乙' }] }
+
+  it('search 打包工具：多个关键词各自搜索，并抓回各自顶部页面正文', async () => {
+    const fetchImpl = vi.fn(async (url, init) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') {
+        const q = JSON.parse(init.body).q
+        return jsonResponse(q === '词一' ? ORGANIC_A : ORGANIC_B)
+      }
+      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    const out = await executeTool(bundleConfig, 'search', { queries: ['词一', '词二'] }, fetchImpl)
+
+    // 两个 serper 调用、两个 jina 调用，一次发起
+    expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('serper.dev'))).toHaveLength(2)
+    const jinaCalls = fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))
+    expect(jinaCalls).toHaveLength(2)
+    expect(jinaCalls.map(([u]) => String(u))).toEqual([
+      'https://r.jina.ai/https://a.com/1',
+      'https://r.jina.ai/https://b.com/2',
+    ])
+    expect(out).toContain('页面甲')
+    expect(out).toContain('https://a.com/1')
+    expect(out).toContain('正文')
+    expect(out).toContain('页面乙')
   })
 
-  it('read_url：以 Bearer 调用 jina reader 并截断超长正文', async () => {
-    const longText = '正文'.repeat(4000)
-    const fetchImpl = vi.fn(async () => new Response(longText, { status: 200 }))
-    const config = {
-      serperKey: '',
-      serperBase: 'https://google.serper.dev',
-      jinaKey: 'jina-k',
-      jinaBase: 'https://r.jina.ai',
-    }
-    const out = await executeTool(config, 'read_url', { url: 'https://example.com/post' }, fetchImpl)
-    const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('https://r.jina.ai/https://example.com/post')
-    expect(init.headers.Authorization).toBe('Bearer jina-k')
-    expect(out.length).toBeLessThanOrEqual(8200)
+  it('多关键词命中的页面去重，同 URL 只抓一次正文', async () => {
+    // 两个关键词都命中同一页面
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
+      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    await executeTool(bundleConfig, 'search', { queries: ['词一', '词一'] }, fetchImpl)
+    expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('serper.dev'))).toHaveLength(1)
+    expect(fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))).toHaveLength(1)
   })
 
-  it('read_url：url 不是 http(s) 时直接拒绝，不发请求', async () => {
+  it('单页抓取失败不影响其它页面，失败处标注', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
+      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('too many', { status: 429 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    const out = await executeTool(bundleConfig, 'search', { queries: ['词一'] }, fetchImpl)
+    expect(out).toMatch(/页面甲/)
+    expect(out).toMatch(/429|失败/)
+  })
+
+  it('正文截到每页上限，避免超长页面把上下文撑爆', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
+      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正'.repeat(5000), { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    const out = await executeTool(bundleConfig, 'search', { queries: ['词一'] }, fetchImpl)
+    expect(out.length).toBeLessThan(5000)
+  })
+
+  it('query 单字符串与 queries 数组都接受', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).includes('serper.dev')) return jsonResponse(ORGANIC_A)
+      if (String(url).startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
+      throw new Error(String(url))
+    })
+    const out = await executeTool(bundleConfig, 'search', { query: '单个词' }, fetchImpl)
+    expect(out).toContain('页面甲')
+  })
+
+  it('keywords 为空时返回说明，不发任何请求', async () => {
     const fetchImpl = vi.fn()
-    const config = { serperKey: '', serperBase: '', jinaKey: 'k', jinaBase: 'https://r.jina.ai' }
-    await expect(executeTool(config, 'read_url', { url: 'file:///etc/passwd' }, fetchImpl)).rejects.toThrow(/http/)
+    const out = await executeTool(bundleConfig, 'search', { queries: [] }, fetchImpl)
+    expect(out).toMatch(/空|未提供|关键词/)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('缺少对应密钥时返回不可用说明而不是抛错', async () => {
-    const config = { serperKey: '', serperBase: 'https://google.serper.dev', jinaKey: '', jinaBase: '' }
-    const out = await executeTool(config, 'search', { query: 'x' }, vi.fn())
+  it('缺少密钥时返回不可用说明而不是抛错', async () => {
+    const noKey = { ...bundleConfig, serperKey: '', jinaKey: '' }
+    const out = await executeTool(noKey, 'search', { queries: ['x'] }, vi.fn())
     expect(out).toContain('未配置')
-  })
-
-  it('上游报错时把状态码塞进结果，模型可读后自行解释', async () => {
-    const fetchImpl = vi.fn(async () => new Response('denied', { status: 403 }))
-    const config = { serperKey: 'k', serperBase: 'https://google.serper.dev', jinaKey: '', jinaBase: '' }
-    const out = await executeTool(config, 'search', { query: 'x' }, fetchImpl)
-    expect(out).toContain('403')
   })
 })
 
 describe('TOOL_DEFS', () => {
-  it('声明 search 与 read_url 两个工具', () => {
+  it('只声明一个打包的 search 工具（检索+抓正文一体）', () => {
     const names = TOOL_DEFS.map((t) => t.function?.name)
-    expect(names).toEqual(['search', 'read_url'])
+    expect(names).toEqual(['search'])
   })
 
-  it('工具的必填参数正确', () => {
+  it('search 接受关键词数组，一次发起多轮检索与抓取', () => {
     const search = TOOL_DEFS.find((t) => t.function?.name === 'search')
-    const reader = TOOL_DEFS.find((t) => t.function?.name === 'read_url')
-    expect(search.function.parameters.required).toEqual(['query'])
-    expect(reader.function.parameters.required).toEqual(['url'])
+    expect(search.function.parameters.required).toEqual(['queries'])
+    const queries = search.function.parameters.properties.queries
+    expect(queries.type).toBe('array')
   })
 })
 
@@ -112,7 +154,7 @@ describe('runAgentTurn', () => {
           role: 'assistant',
           content: null,
           tool_calls: [
-            { id: 'call_1', type: 'function', function: { name: 'search', arguments: '{"query":"复利定义"}' } },
+            { id: 'call_1', type: 'function', function: { name: 'search', arguments: '{"queries":["复利定义"]}' } },
           ],
         },
       },
@@ -179,58 +221,8 @@ describe('runAgentTurn', () => {
     await expect(runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})).rejects.toThrow(/500/)
   })
 
-  it('读过网页后，最终作答前会把已读来源清单注入上下文', async () => {
-    const readCall = {
-      choices: [
-        {
-          finish_reason: 'tool_calls',
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              { id: 'r1', type: 'function', function: { name: 'read_url', arguments: '{"url":"https://example.com/post"}' } },
-            ],
-          },
-        },
-      ],
-    }
-    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: '基于来源的回答' } }] }
-    // 读 → 注入来源清单后重问 → 最终回答；mock 队列需提供三轮响应
-    const fetchImpl = makeFetch([
-      () => jsonResponse(readCall),
-      () => jsonResponse(finalPayload),
-      () => jsonResponse(finalPayload),
-    ])
-    await runAgentTurn(agentConfig, [{ role: 'user', content: '查一下' }], fetchImpl, () => {})
-
-    const llmCalls = fetchImpl.mock.calls
-      .filter(([u]) => String(u).includes('chat/completions'))
-      .map(([, init]) => JSON.parse(init.body))
-    // 最后一轮调 LLM 的 messages 里应包含本次已读来源的清单，告知模型引用这些链接
-    const last = llmCalls[llmCalls.length - 1]
-    const hasSourceHint = last.messages.some(
-      (m) => m.role === 'system' && String(m.content).includes('https://example.com/post'),
-    )
-    expect(hasSourceHint).toBe(true)
-  })
-
-  it('全程只搜索未读网页时不注入来源清单', async () => {
-    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: '只搜摘要' } }] }
-    const fetchImpl = makeFetch([() => jsonResponse(toolCallPayload), () => jsonResponse(finalPayload)])
-    await runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})
-    const llmCalls = fetchImpl.mock.calls
-      .filter(([u]) => String(u).includes('chat/completions'))
-      .map(([, init]) => JSON.parse(init.body))
-    const last = llmCalls[llmCalls.length - 1]
-    const hasSourceHint = last.messages.some(
-      (m) => m.role === 'system' && String(m.content).includes('https://zh.wikipedia.org/wiki/复利'),
-    )
-    // 摘要来自搜索返回，不是 read_url 读取，不应被当作"已读来源"注入
-    expect(hasSourceHint).toBe(false)
-  })
-
-  /** 同一轮里并行发多个 read_url 调用的响应。 */
-  function parallelReadCalls(urls) {
+  /** 同一轮里并行发多个打包 search 调用的响应。 */
+  function parallelSearchCalls(queriesList) {
     return {
       choices: [
         {
@@ -238,10 +230,10 @@ describe('runAgentTurn', () => {
           message: {
             role: 'assistant',
             content: null,
-            tool_calls: urls.map((url, index) => ({
+            tool_calls: queriesList.map((queries, index) => ({
               id: `r${index}`,
               type: 'function',
-              function: { name: 'read_url', arguments: JSON.stringify({ url }) },
+              function: { name: 'search', arguments: JSON.stringify({ queries }) },
             })),
           },
         },
@@ -250,10 +242,10 @@ describe('runAgentTurn', () => {
   }
 
   it('同一轮的多个工具调用并发执行，而不是逐个排队', async () => {
-    // 每个 read_url 阻塞 120ms；串行会累加到 360ms 以上
+    // 每个 search 的 serper 请求阻塞 120ms；串行会累加到 360ms 以上
     let inFlight = 0
     let peak = 0
-    const urls = ['https://a.com/1', 'https://a.com/2', 'https://a.com/3']
+    const queriesList = [['甲'], ['乙'], ['丙']]
     const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: '并发完成' } }] }
     let llmStep = 0
 
@@ -261,20 +253,23 @@ describe('runAgentTurn', () => {
       const urlStr = String(url)
       if (urlStr.includes('chat/completions')) {
         llmStep += 1
-        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+        return jsonResponse(llmStep === 1 ? parallelSearchCalls(queriesList) : finalPayload)
       }
-      if (urlStr.includes('r.jina.ai')) {
+      if (urlStr.includes('serper.dev')) {
         inFlight += 1
         peak = Math.max(peak, inFlight)
         await new Promise((resolve) => setTimeout(resolve, 120))
         inFlight -= 1
+        return jsonResponse({ organic: [{ title: 't', link: 'https://p.com/x', snippet: 's' }] })
+      }
+      if (urlStr.includes('r.jina.ai')) {
         return new Response(`正文 ${urlStr}`, { status: 200 })
       }
       throw new Error(`未知请求 ${urlStr}`)
     })
 
     const started = Date.now()
-    await runAgentTurn(agentConfig, [{ role: 'user', content: '查几个页面' }], fetchImpl, () => {})
+    await runAgentTurn(agentConfig, [{ role: 'user', content: '查几个词' }], fetchImpl, () => {})
     const elapsed = Date.now() - started
 
     expect(peak).toBeGreaterThanOrEqual(2)
@@ -282,19 +277,21 @@ describe('runAgentTurn', () => {
   })
 
   it('并发执行的多个工具调用，回填仍按 tool_call_id 一一对应', async () => {
-    const urls = ['https://b.com/1', 'https://b.com/2']
+    // 用第二个查询词更慢的 serper 响应：结果必须回到自己的 tool_call_id
     const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }
     let llmStep = 0
-    const fetchImpl = vi.fn(async (url) => {
+    const fetchImpl = vi.fn(async (url, init) => {
       const urlStr = String(url)
       if (urlStr.includes('chat/completions')) {
         llmStep += 1
-        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+        return jsonResponse(llmStep === 1 ? parallelSearchCalls([['词一'], ['词二']]) : finalPayload)
       }
-      // 第二个更慢：结果必须回到自己的 tool_call_id，不能按完成先后错位
-      const delay = urlStr.includes('/2') ? 100 : 10
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      return new Response(`正文 ${urlStr}`, { status: 200 })
+      if (urlStr.includes('serper.dev')) {
+        const q = JSON.parse(init.body).q
+        await new Promise((resolve) => setTimeout(resolve, q === '词二' ? 100 : 10))
+        return jsonResponse({ organic: [{ title: `t-${q}`, link: `https://p.com/${q}`, snippet: `s-${q}` }] })
+      }
+      return new Response('正文', { status: 200 })
     })
 
     await runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})
@@ -306,19 +303,24 @@ describe('runAgentTurn', () => {
 
     expect(toolMsgs).toHaveLength(2)
     const byId = Object.fromEntries(toolMsgs.map((m) => [m.tool_call_id, m.content]))
-    expect(byId.r0).toContain('/1')
-    expect(byId.r1).toContain('/2')
+    expect(byId.r0).toContain('词一')
+    expect(byId.r1).toContain('词二')
   })
 
   it('并发时单个工具失败不影响其它工具的回填', async () => {
-    const urls = ['https://c.com/ok', 'file:///etc/passwd']
+    // 第二个 search 调 serper 返回 500：第一个的结果不受影响，错误以文本回填
     const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }
     let llmStep = 0
-    const fetchImpl = vi.fn(async (url) => {
+    const fetchImpl = vi.fn(async (url, init) => {
       const urlStr = String(url)
       if (urlStr.includes('chat/completions')) {
         llmStep += 1
-        return jsonResponse(llmStep === 1 ? parallelReadCalls(urls) : finalPayload)
+        return jsonResponse(llmStep === 1 ? parallelSearchCalls([['正常词'], ['失败词']]) : finalPayload)
+      }
+      if (urlStr.includes('serper.dev')) {
+        const q = JSON.parse(init.body).q
+        if (q === '失败词') return new Response('denied', { status: 500 })
+        return jsonResponse({ organic: [{ title: '页面甲', link: 'https://a.com/1', snippet: '摘要' }] })
       }
       return new Response('正文', { status: 200 })
     })
@@ -331,8 +333,8 @@ describe('runAgentTurn', () => {
     const toolMsgs = llmCalls[1].messages.filter((m) => m.role === 'tool')
     const byId = Object.fromEntries(toolMsgs.map((m) => [m.tool_call_id, m.content]))
 
-    expect(byId.r0).toContain('正文')
-    expect(byId.r1).toMatch(/失败|http/)
+    expect(byId.r0).toContain('页面甲')
+    expect(byId.r1).toMatch(/500|失败/)
   })
 
   /** 把若干段 SSE 文本包成一个流式响应，模拟 OpenAI 兼容上游。 */
@@ -383,8 +385,8 @@ describe('runAgentTurn', () => {
   it('工具轮次的增量流仍能解析出 tool_calls 并执行', async () => {
     // 工具调用在流式协议里也是分片下发的（id/name/arguments 分开）
     const toolStream = sseResponse([
-      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'search', arguments: '{"query":' } }] } }] })}\n\n`,
-      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"复利定义"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'search', arguments: '{"queries":' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '["复利定义"]}' } }] } }] })}\n\n`,
       'data: [DONE]\n\n',
     ])
     const finalStream = sseResponse([contentChunk('答完了'), 'data: [DONE]\n\n'])
@@ -418,7 +420,7 @@ describe('runAgentTurn', () => {
     // 模型可能先说一句"我查一下"，随后才调工具；这段文字不能留在答案里
     const talkThenTool = sseResponse([
       contentChunk('我先查一下。'),
-      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"query":"x"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"queries":["x"]}' } }] } }] })}\n\n`,
       'data: [DONE]\n\n',
     ])
     const finalStream = sseResponse([contentChunk('真正的答案'), 'data: [DONE]\n\n'])

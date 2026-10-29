@@ -5,13 +5,11 @@ const MAX_LLM_CALLS = 12
 
 /** 告诉模型有哪些工具、什么时候用。 */
 const TOOL_GUIDE = [
-  '你可以使用 search（联网搜索）与 read_url（读取网页正文），该应用用于学习场景，对最新知识要求高。',
-  '涉及时效信息、事实核查、具体数据或来源时：宁可多查也要查全，不能只凭印象作答。通常执行方式：',
-  '1) 先多角度搜索几轮（不同侧重、近一年资料优先），从结果里挑出值得深入的条目用 read_url 打开核对；',
-  '2) 事实与摘要里看到的要区分，引用页面上看到的内容才能写进答案；',
-  '3) 回答注明来源链接，对于不一致的口径要明说矛盾。',
-  '概念讲解、逻辑推导、已给出原文的追问不需要搜索。',
-  '预算足够可以多查，不需要为响应速度牺牲完整性。',
+  '你可以使用 search（联网搜索，一次调用自动检索并抓回相关页面正文）。该应用用于学习场景，对最新知识要求高。',
+  '涉及时效信息、事实核查、具体数据或来源时，先想清楚要核实的几个角度，把它们作为多个关键词放在一次 search 调用的 queries 里（2-4 个），只调一次。',
+  '抓回的结果已包含正文，引用你看过的内容才能写进答案，摘要与正文事实要区分；',
+  '回答注明来源链接，对于不一致的口径要明说矛盾。',
+  '结果不够再补一次针对性的 search；概念讲解、逻辑推导、已给出原文的追问不需要搜索。',
 ].join('')
 
 export const TOOL_DEFS = [
@@ -19,23 +17,17 @@ export const TOOL_DEFS = [
     type: 'function',
     function: {
       name: 'search',
-      description: '联网搜索，返回相关网页的标题、链接与摘要。需要时效信息、事实或来源时使用。',
+      description: '联网搜索：一次传入多个关键词，自动检索并抓回各关键词顶部页面的正文（标题、链接、摘要、正文）。需要时效信息、事实或来源时使用。',
       parameters: {
         type: 'object',
-        properties: { query: { type: 'string', description: '搜索关键词' } },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_url',
-      description: '读取指定网页的正文内容。搜索结果值得展开时使用。',
-      parameters: {
-        type: 'object',
-        properties: { url: { type: 'string', description: 'http(s) 网页地址' } },
-        required: ['url'],
+        properties: {
+          queries: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '多个搜索关键词（不同侧重），一次调用并行检索与抓取',
+          },
+        },
+        required: ['queries'],
       },
     },
   },
@@ -265,21 +257,6 @@ export async function runAgentTurn(
     { role: 'system', content: TOOL_GUIDE },
     ...messages,
   ]
-  /** 本次实际 read_url 打开过的网页来源；最终作答前注入，确保引用落到答案里。 */
-  const readSources = new Set()
-  let sourcesInjected = false
-
-  /** 已读来源注入一次；返回是否真的注入了（注入后应再调一次 LLM，让回答带引用）。 */
-  const injectSourcesOnce = () => {
-    if (sourcesInjected || readSources.size === 0) return false
-    sourcesInjected = true
-    const list = [...readSources].map((source) => `- ${source}`).join('\n')
-    history.push({
-      role: 'system',
-      content: ['本轮对话实际打开并读过以下网页。请基于这些来源组织最终答案，并在答案中注明来源链接，不要只凭摘要或记忆综述：', list].join('\n'),
-    })
-    return true
-  }
 
   for (let callIndex = 0; callIndex < MAX_LLM_CALLS; callIndex += 1) {
     /** 本轮是否已经往外吐过文字 */
@@ -299,19 +276,11 @@ export async function runAgentTurn(
       for (const toolCall of toolCalls) {
         history.push({ role: 'tool', tool_call_id: toolCall.id, content: '已达到工具调用轮次上限' })
       }
-      injectSourcesOnce()
       const finalMessage = await callLlm(config, history, fetchImpl, onDelta)
       return { content: finalMessage.content ?? '' }
     }
 
     if (toolCalls.length === 0) {
-      // 模型想直接作答：若读过的来源还没注入，先注入再重问一次，避免全文无引用。
-      if (injectSourcesOnce()) {
-        // 刚才那版答案会被丢掉重答，已吐出的文字要清掉
-        if (spoke) onReset()
-        callIndex -= 1
-        continue
-      }
       return { content: message.content ?? '' }
     }
 
@@ -327,11 +296,10 @@ export async function runAgentTurn(
       toolCalls.map(async (toolCall) => {
         const name = toolCall.function?.name ?? ''
         const args = parseArguments(toolCall.function?.arguments)
-        onStep({ tool: name, detail: String(args.query ?? args.url ?? '') })
-        if (name === 'read_url') {
-          const source = String(args.url ?? '').trim()
-          if (source) readSources.add(source)
-        }
+        /** 打包 search 的关键词列表（兼容模型偶尔发出的单字符串 query）。 */
+        const queries =
+          args.queries ?? (typeof args.query === 'string' ? [args.query] : [])
+        onStep({ tool: name, detail: queries.join('、') })
         try {
           return await executeTool(config, name, args, fetchImpl)
         } catch (cause) {

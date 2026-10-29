@@ -231,7 +231,7 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
           role: 'assistant',
           content: null,
           tool_calls: [
-            { id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"query":"复利 最新"}' } },
+            { id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"queries":["复利 最新"]}' } },
           ],
         },
       },
@@ -239,12 +239,21 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
   }
 
   function agentFetch() {
-    const queue = [
-      () => jsonResponse(TOOL_CALL),
-      () => jsonResponse({ organic: [{ title: '结果一', link: 'https://a.com', snippet: '摘要' }] }),
-      () => jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '带引用的回答' } }] }),
-    ]
-    return vi.fn(async () => Promise.resolve(queue.shift()()))
+    let step = 0
+    return vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        step += 1
+        if (step === 1) return jsonResponse(TOOL_CALL)
+        return jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '带引用的回答' } }] })
+      }
+      // 打包 search：检索回条目后还会抓页面正文（jina），两类请求都要桩到
+      if (urlStr.includes('serper.dev')) {
+        return jsonResponse({ organic: [{ title: '结果一', link: 'https://a.com', snippet: '摘要' }] })
+      }
+      if (urlStr.includes('r.jina.ai')) return new Response('页面正文', { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
   }
 
   function jsonResponse(payload, status = 200) {
