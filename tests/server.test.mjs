@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHandler } from '../server/handler.mjs'
+import { computeStreamKey } from '../server/stream-store.mjs'
 import { loadServerConfig, parseEnvFile } from '../server/config.mjs'
 
 const KEY = 'sk-test-secret-key'
@@ -333,5 +334,76 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
       '回答',
       '。',
     ])
+  })
+
+  function streamKeyOf(payload) {
+    return computeStreamKey({
+      messages: payload.messages,
+      model: 'default-model',
+    })
+  }
+
+  it('客户端中途断开时，服务端仍把回答跑完并暂存：回来后按 streamKey 能拉回完整文本', async () => {
+    const chunkA = contentChunk('前半段')
+    const chunkB = contentChunk('后半段')
+    const payload = { messages: [{ role: 'user', content: '讲一段分两段的故事' }] }
+
+    const fetchImpl = vi.fn(async () => sseUpstream([chunkA, chunkB, 'data: [DONE]\n\n']))
+    running = await serve(baseConfig(), fetchImpl)
+
+    const abort = new AbortController()
+    // 收满第一段就断：要证实的是服务端不会因为客户端断开而中止
+    const firstResponse = await fetch(`${running.base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: abort.signal,
+    })
+    abort.abort()
+    // 让服务端把这次生成跑完
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    const streamKey = streamKeyOf(payload)
+    const resumed = await fetch(`${running.base}/api/chat/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ streamKey }),
+    })
+    const body = await resumed.json()
+
+    expect(resumed.status).toBe(200)
+    expect(body.content).toBe('前半段后半段')
+  })
+
+  it('resume 拿到的 key 必须是已存在的残迹号；不存在的 key 返回 404', async () => {
+    running = await serve(baseConfig(), vi.fn())
+    const resumed = await fetch(`${running.base}/api/chat/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ streamKey: 'missing-key' }),
+    })
+    expect(resumed.status).toBe(404)
+  })
+
+  it('断开后完成的回答经过 resume 拉取后，检查记录中的状态仍与完成一致', async () => {
+    const payload = { messages: [{ role: 'user', content: '两个字' }] }
+    const fetchImpl = vi.fn(async () => sseUpstream([contentChunk('短'), contentChunk('答'), 'data: [DONE]\n\n']))
+    running = await serve(baseConfig(), fetchImpl)
+
+    await fetch(`${running.base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    const streamKey = streamKeyOf(payload)
+    const resumed = await fetch(`${running.base}/api/chat/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ streamKey }),
+    })
+    const body = await resumed.json()
+    expect(body.status).toBe('done')
   })
 })

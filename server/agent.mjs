@@ -42,7 +42,7 @@ export const TOOL_DEFS = [
 ]
 
 /** 解析上游 SSE 数据流，屏蔽 chunk 边界与注释行。 */
-function createSseParser() {
+export function createSseParser() {
   let buffer = ''
   return {
     push(chunk) {
