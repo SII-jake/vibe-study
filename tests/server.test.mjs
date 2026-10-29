@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHandler } from '../server/handler.mjs'
 import { computeStreamKey } from '../server/stream-store.mjs'
-import { loadServerConfig, parseEnvFile } from '../server/config.mjs'
+import { loadServerConfig, parseEnvFile, withEnvSource } from '../server/config.mjs'
 
 const KEY = 'sk-test-secret-key'
 
@@ -59,6 +59,24 @@ describe('parseEnvFile', () => {
 
   it('去掉值两端的引号与空白', () => {
     expect(parseEnvFile('AI_API_KEY="  x  "\n')).toEqual({ AI_API_KEY: 'x' })
+  })
+})
+
+describe('withEnvSource', () => {
+  it('环境变量已有 AI_API_KEY 时直接返回环境', () => {
+    const env = { AI_API_KEY: 'env-key' }
+    expect(withEnvSource(env, () => 'AI_API_KEY=file-key\n')).toBe(env)
+  })
+
+  it('环境没有 AI_API_KEY 时并入 .env 文件，环境变量优先', () => {
+    const env = { AI_MODEL: 'env-model' }
+    const result = withEnvSource(env, () => 'AI_API_KEY=file-key\nAI_MODEL=file-model\n')
+    expect(result).toEqual({ AI_API_KEY: 'file-key', AI_MODEL: 'env-model' })
+  })
+
+  it('.env 文件读不到时静默落回环境变量', () => {
+    const env = { AI_MODEL: 'env-model' }
+    expect(withEnvSource(env, () => { throw new Error('ENOENT') })).toBe(env)
   })
 })
 

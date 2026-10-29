@@ -2,24 +2,13 @@ import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { isConfigured, loadServerConfig, parseEnvFile } from './config.mjs'
+import { isConfigured, loadServerConfig, withEnvSource } from './config.mjs'
 import { createHandler } from './handler.mjs'
 import { createStaticHandler } from './static.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-/** 优先读同目录的 .env；环境变量已经提供时以环境变量为准。 */
-function withEnvFile() {
-  if (process.env.AI_API_KEY) return process.env
-  try {
-    const parsed = parseEnvFile(readFileSync(join(here, '.env'), 'utf8'))
-    return { ...parsed, ...process.env }
-  } catch {
-    return process.env
-  }
-}
-
-const config = loadServerConfig(withEnvFile())
+const config = loadServerConfig(withEnvSource(process.env, () => readFileSync(join(here, '.env'), 'utf8')))
 const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
 /** 产物目录默认取仓库内 dist，可用 DIST_DIR 覆盖；反向代理只认端口，不认路径。 */

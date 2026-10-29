@@ -63,6 +63,21 @@ export function stripSlash(input) {
   return (input ?? '').trim().replace(/\/+$/, '')
 }
 
+/**
+ * 服务端配置来源：优先读进程环境；没有 AI_API_KEY 时去读 server/.env。
+ * readFileImpl 读不到文件（不存在）时静默落回环境变量，与过去内联在
+ * index.mjs 的行为一致；评测 CLI 与启动入口共用这一份判断，不复制。
+ */
+export function withEnvSource(env = process.env, readFileImpl) {
+  if (env.AI_API_KEY) return env
+  try {
+    const parsed = parseEnvFile(String(readFileImpl()))
+    return { ...parsed, ...env }
+  } catch {
+    return env
+  }
+}
+
 export function isConfigured(config) {
   return config.apiKey !== '' && config.model !== ''
 }
