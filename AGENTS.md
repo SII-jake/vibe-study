@@ -51,14 +51,15 @@ npm run build           # 构建，涉构建的改动必须构建成功
    *验收*：`npm test`、`npx tsc --noEmit`、`npm run build` 按"常用命令"节注明的验收全部实际跑通。
 6. **`docs/architecture.md` 只读**。设计变化找产品/设计对齐，不在代码里私改语义。
    *验收*：仓库历史里不存在未走公开评审流程的 architecture.md 修改。
-7. **push 前按 checklist 完成检查**，完整核对清单见 `docs/before-push-checklist.md`。任何检查项勾不出来时必须在 PR 里显式报告未完成项与原因，不许静默跳过。
-   *验收*：PR 内容包括逐项检查结果；勾不出来的项已写明原因并显式报给人。
-8. **提交代码走新分支 + PR（默认合入 `main`）**，一个分支/PR 只做一件事。
+7. **push 前按 checklist 完成检查**，完整核对清单见 `docs/before-push-checklist.md`。任何检查项勾不出来时必须在 push 汇报里显式报告未完成项与原因，不许静默跳过。
+   *验收*：push 汇报包括逐项检查结果；勾不出来的项已写明原因并显式报给人。
+8. **提交代码走新分支，一个分支只做一件事；单人开发不走 PR。**
    - 开工前先同步基点：任何新功能/修复动手前，先 `git fetch origin`，从最新的 `origin/main` 拉新分支开工（`git checkout -b <type>/<短名> origin/main`）；不得基于本地旧分支、未合入的在途分支或过期的 main 直接开工。
    - 分支命名：`<type>/<语义短名>`；type 与 commit message 的 type 同集合（feature|fix|docs|refactor|chore|test|perf），短名全小写英文加连字符（如 `feature/user-export`），不带人名、日期；工具自动生成的隔离分支（如 `synergy/*`）不受此限。
    - commit 纪律：对话中途可随手 commit 保存进度，但零散 commit 不逐个 push；push 前 squash 成按"完整一件事"组织的历史，一次性推送。
-   - PR 纪律：代理把改动推进到就绪状态后停下；建 PR 由人触发，不自行发起。
-   *验收*：PR 创建动作来自人的明确指令；分支相对 main 的历史呈现为完整一件事；当前分支是新分支且 PR 目标为 `main`。
+   - 合入纪律：单人开发默认**不开 PR**。代理把改动推进到本地就绪状态（测试/类型/构建全绿、工作区干净）后停下，交人验收；验收通过后由人明确指令 **merge & push `main`**。merge 动作本身仍须每次单独授权，不能从"上次说过可以"推断到下一次。
+   - 跨人协作例求：仓库一旦出现第二份提交、外部共同开发或对抗性审查需求，恢复走 PR 评审，本节须同步改回。
+   *验收*：合并与推送动作来自人的明确指令；分支相对 main 的历史呈现为完整一件事；当前分支是新分支；merge 前 `npm test`、`npx tsc --noEmit`、`npm run build` 均绿。
 
 ## 人类权威边界
 
@@ -96,6 +97,6 @@ npm run build           # 构建，涉构建的改动必须构建成功
 - `docs/before-push-checklist.md`：push 前三态检查清单。
 - `docs/code-standards.md`：工程规范与反面案例（DRY + 文档规范）。
 - `docs/agent-collab-metrics.md`：人机协作度量登记口径。
-- `docs/decisions/README.md`：决策记录的格式与存放约定（一个 PR 一篇）。
+- `docs/decisions/README.md`：决策记录的格式与存放约定（一批改动一篇）。
 - `docs/risks/README.md`：分域踩坑登记的格式约定。
 - `docs/archived/README.md`：退役内容归档规则。
