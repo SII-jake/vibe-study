@@ -1006,6 +1006,26 @@ body:has([data-dragging]) {
   font-weight: 600;
 }
 
+/* 标题即「回新会话起始页」入口：视觉保持纯标题，交互是完整按钮 */
+.brand-btn {
+  all: unset;
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  border-radius: 4px;
+}
+
+.brand-btn:hover {
+  color: var(--accent, inherit);
+}
+
+.brand-btn:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}
+
 .topic-active {
   border-color: var(--accent);
   background: var(--accent-soft);

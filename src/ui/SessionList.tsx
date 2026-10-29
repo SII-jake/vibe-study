@@ -37,7 +37,11 @@ export function SessionList({
   return (
     <div className="session-list">
       <header className="session-head">
-        <h1>vibe study</h1>
+        <h1>
+          <button type="button" className="brand-btn" data-brand onClick={onNewSession}>
+            vibe study
+          </button>
+        </h1>
         <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="设置">
           ⚙
         </button>
