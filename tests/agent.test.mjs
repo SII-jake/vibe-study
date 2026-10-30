@@ -74,6 +74,30 @@ describe('executeTool', () => {
     expect(fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))).toHaveLength(1)
   })
 
+  it('单次 search 调用抓正文总页数封顶（≤4 页），按结果排名取前面的', async () => {
+    // 3 个关键词 × 每词抓 top 2 = 6 个候选页，超出 4 页封顶：只抓前 4 个
+    const ORGANIC_C = { organic: [{ title: '页面丙', link: 'https://c.com/3', snippet: '摘要丙' }] }
+    const fetchImpl = vi.fn(async (url, init) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') {
+        const q = JSON.parse(init.body).q
+        return jsonResponse({ organic: [
+          { title: `t${q}1`, link: `https://p.com/${q}-1`, snippet: 's' },
+          { title: `t${q}2`, link: `https://p.com/${q}-2`, snippet: 's' },
+        ] })
+      }
+      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    await executeTool(bundleConfig, 'search', { queries: ['词一', '词二', '词三'] }, fetchImpl)
+    const jinaCalls = fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))
+    expect(jinaCalls.length).toBeLessThanOrEqual(4)
+    // 排名靠前的页面优先被抓取：词一、词二各占 2 页
+    const urls = jinaCalls.map(([u]) => String(u))
+    expect(urls).toContain('https://r.jina.ai/https://p.com/词一-1')
+    expect(urls).toContain('https://r.jina.ai/https://p.com/词一-2')
+  })
+
   it('单页抓取失败不影响其它页面，失败处标注', async () => {
     const fetchImpl = vi.fn(async (url) => {
       const urlStr = String(url)
@@ -206,14 +230,22 @@ describe('runAgentTurn', () => {
     expect(steps).toEqual([{ tool: 'search', detail: '复利定义' }])
   })
 
-  it('连续多轮 tool_calls 能迭代到最终回答，且预算放宽到不漏', async () => {
-    const calls = Array.from({ length: 8 }, () => () => jsonResponse(toolCallPayload))
+  it('工具轮次超过收紧后的预算就强制终答，不再放任慢慢查', async () => {
+    // 模型不断要调工具：预算 5 轮（4 轮工具 + 1 轮终答兜底），
+    // 第 5 次调用仍想调工具时回填占位说明并强制再调一次拿答案，
+    // 总 LLM 调用封顶 6 次，不允许像过去那样滚到 13 次
+    const calls = Array.from({ length: 5 }, () => () => jsonResponse(toolCallPayload))
     calls.push(() => jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '封顶' } }] }))
     const fetchImpl = makeFetch(calls)
     const result = await runAgentTurn(agentConfig, [{ role: 'user', content: 'x' }], fetchImpl, () => {})
     expect(result.content).toBe('封顶')
-    const llmCalls = fetchImpl.mock.calls.filter(([u]) => String(u).includes('chat/completions'))
-    expect(llmCalls.length).toBeLessThanOrEqual(13)
+    const llmCalls = fetchImpl.mock.calls
+      .filter(([u]) => String(u).includes('chat/completions'))
+      .map(([, init]) => JSON.parse(init.body))
+    expect(llmCalls.length).toBeLessThanOrEqual(6)
+    // 兜底那轮的上下文里要带轮次上限说明，模型知道为什么不能再查
+    const forced = llmCalls[llmCalls.length - 1]
+    expect(forced.messages.some((m) => m.role === 'tool' && String(m.content).includes('轮次上限'))).toBe(true)
   })
 
   it('上游返回非 2xx 时抛出状态码错误', async () => {

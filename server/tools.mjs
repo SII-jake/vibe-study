@@ -6,6 +6,9 @@ const PAGE_MAX_CHARS = 3000
 /** 每个关键词命中的结果只抓前几个页面的正文，其余只留摘要。 */
 const FETCH_TOP_RESULTS = 2
 
+/** 单次 search 调用的抓正文总页数上限：词数多时自动放大抓取量的保险丝。 */
+const MAX_FETCH_PAGES = 4
+
 /** 摘要条数：与过去保持一致的前 8 条。 */
 const TOP_RESULTS = 8
 
@@ -59,11 +62,12 @@ async function searchAndFetch(config, queries, fetchImpl) {
     }),
   )
 
-  /** 待抓正文页面：按关键词顺序、结果排名去重。 */
+  /** 待抓正文页面：按关键词顺序、结果排名去重；词多时封顶，防止抓取量膨胀。 */
   const toFetch = []
   const seenUrls = new Set()
   for (const result of results) {
     for (const item of (result.items ?? []).slice(0, FETCH_TOP_RESULTS)) {
+      if (toFetch.length >= MAX_FETCH_PAGES) break
       if (!seenUrls.has(item.link)) {
         seenUrls.add(item.link)
         toFetch.push(item.link)
