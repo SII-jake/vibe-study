@@ -85,6 +85,17 @@ function formatDeltaPct(value) {
   return value === null ? '  ——' : `${value > 0 ? '+' : ''}${value}%`
 }
 
+/** 一侧的 search/fetch 分项行：次数、总耗时、最慢一跳（并发批的壁钟近似）。 */
+function formatBreakdown(label, median) {
+  if (!median) return `${label}：缺题`
+  const sec = (v) => (v / 1000).toFixed(1)
+  return (
+    `  ${label}：` +
+    `搜索 ${median.serperCalls} 次共 ${sec(median.serperMs)}s（壁钟 ${sec(median.serperWallMs ?? 0)}s），` +
+    `抓取 ${median.jinaCalls} 页共 ${sec(median.jinaMs)}s（壁钟 ${sec(median.jinaWallMs ?? 0)}s）`
+  )
+}
+
 /** 把一份评测报告打成可读表格（无对比时基准即自身）。 */
 export function formatComparison(comparison) {
   const lines = []
@@ -95,6 +106,9 @@ export function formatComparison(comparison) {
     lines.push(
       `${row.id} | ${formatMs(row.baseMs)} | ${formatMs(row.candMs)} | ${delta} | ${formatDeltaPct(row.deltaPct)}`,
     )
+    // search 与 fetch 分开列：打包后总时延主要由抓取决定，混在一起看不出瓶颈
+    lines.push(formatBreakdown(`└ 基准 ${comparison.baseline}`, row.baseMedian))
+    lines.push(formatBreakdown(`└ 候选 ${comparison.candidate}`, row.candMedian))
   }
   lines.push(
     `汇总 | ${formatMs(comparison.summary.baseMs)} | ${formatMs(comparison.summary.candMs)} | ` +

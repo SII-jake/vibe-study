@@ -62,8 +62,8 @@ describe('formatComparison', () => {
         candMs: 1300,
         deltaMs: -700,
         deltaPct: -35,
-        baseMedian: { llmCalls: 3, serperCalls: 1, jinaCalls: 1, firstDeltaMs: 900, contentLen: 800 },
-        candMedian: { llmCalls: 2, serperCalls: 2, jinaCalls: 0, firstDeltaMs: 700, contentLen: 750 },
+        baseMedian: { llmCalls: 3, serperCalls: 1, serperMs: 2000, serperWallMs: 2100, jinaCalls: 1, jinaMs: 6000, jinaWallMs: 6200, firstDeltaMs: 900, contentLen: 800 },
+        candMedian: { llmCalls: 2, serperCalls: 2, serperMs: 5000, serperWallMs: 2600, jinaCalls: 0, jinaMs: 0, jinaWallMs: 0, firstDeltaMs: 700, contentLen: 750 },
       },
     ],
   }
@@ -76,6 +76,18 @@ describe('formatComparison', () => {
     expect(text).toContain('-700ms')
     expect(text).toContain('-35%')
     expect(text).toContain('汇总')
+  })
+
+  it('search 与 fetch 分别给出两侧次数/总耗时/壁钟，不和打包总时延混在一起', () => {
+    const text = formatComparison(comparison)
+    // 基准侧：search 1 次共 2.0s（壁钟 2.1s）；fetch 1 页共 6.0s（壁钟 6.2s）
+    expect(text).toMatch(/搜索.*1 次/)
+    expect(text).toMatch(/搜索.*2\.0s/)
+    expect(text).toMatch(/搜索.*2\.1s/)
+    expect(text).toMatch(/抓取.*1 页.*6\.0s/)
+    // 候选侧：search 2 次共 5.0s；fetch 0 页
+    expect(text).toMatch(/搜索.*2 次.*5\.0s/)
+    expect(text).toMatch(/抓取.*0 页/)
   })
 
   it('候选缺题时该行明确标出而不是裸 null', () => {

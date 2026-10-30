@@ -107,8 +107,10 @@ function emptyMetrics() {
     llmMs: 0,
     serperCalls: 0,
     serperMs: 0,
+    serperWallMs: 0,
     jinaCalls: 0,
     jinaMs: 0,
+    jinaWallMs: 0,
     otherCalls: 0,
     otherMs: 0,
     contentLen: 0,
@@ -149,6 +151,9 @@ export async function runQuestion({ runner = runAgentTurn, config, question, fet
   for (const event of events) {
     metrics[`${event.kind}Calls`] += 1
     metrics[`${event.kind}Ms`] += event.ms
+    // 同批并发调用的壁钟近似 = 该批最慢一次；跨多批时各批串联，这里取最大单跳作代表
+    const wallField = `${event.kind}WallMs`
+    if (wallField in metrics) metrics[wallField] = Math.max(metrics[wallField], event.ms)
     const headerField = `${event.kind}HeaderMs`
     if (headerField in metrics) metrics[headerField] += event.headerMs ?? event.ms
   }
@@ -176,8 +181,10 @@ const MEDIAN_FIELDS = [
   'llmMs',
   'serperCalls',
   'serperMs',
+  'serperWallMs',
   'jinaCalls',
   'jinaMs',
+  'jinaWallMs',
   'contentLen',
 ]
 
