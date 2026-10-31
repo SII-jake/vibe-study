@@ -1,4 +1,9 @@
-/** 模型可用的外部工具：打包的联网搜索（serper 检索 + jina 抓正文一次完成）。密钥只在服务端使用。 */
+/**
+ * 模型可用的外部工具：打包的联网搜索（多关键词检索 + 抓正文一次完成）。
+ * 提供方二选一：默认 serper + jina；配置 DEEPSEEK_KEY 后整体切换为
+ * DeepSeek search + fetch（同一对外的打包契约与输出格式不变）。
+ * 密钥只在服务端使用。
+ */
 
 /** 单页抓回的正文上限：够核对摘要与关键事实，又避免超长页面把上下文撑爆。 */
 const PAGE_MAX_CHARS = 3000
@@ -12,11 +17,8 @@ const MAX_FETCH_PAGES = 4
 /** 摘要条数：与过去保持一致的前 8 条。 */
 const TOP_RESULTS = 8
 
-/**
- * 抓一个页面的正文（jina reader）。失败返回可标注原因而不是抛错，
- * 单页失败不能让整次打包搜索的结果丢掉。
- */
-async function fetchPage(config, url, fetchImpl) {
+/** 抓一个页面的正文（jina reader）。失败转为文本标注而不是抛错。 */
+async function fetchPageJina(config, url, fetchImpl) {
   try {
     const response = await fetchImpl(`${config.jinaBase}/${url}`, {
       headers: { Authorization: `Bearer ${config.jinaKey}` },
@@ -31,8 +33,8 @@ async function fetchPage(config, url, fetchImpl) {
   }
 }
 
-/** 单关键词检索：返回命中的条目数组；接口失败时以错误文本为唯一「条目」。 */
-async function searchOne(config, q, fetchImpl) {
+/** 单关键词检索（serper）：返回命中的条目数组；接口失败时以错误文本标注。 */
+async function searchOneSerper(config, q, fetchImpl) {
   const response = await fetchImpl(`${config.serperBase}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-KEY': config.serperKey },
@@ -46,28 +48,83 @@ async function searchOne(config, q, fetchImpl) {
   return { items: (body.organic ?? []).slice(0, TOP_RESULTS) }
 }
 
+/** 单关键词检索（DeepSeek search）：返回归一化为 { title, link, snippet, summary } 的条目数组。 */
+async function searchOneDeepseek(config, q, fetchImpl) {
+  const response = await fetchImpl(`${config.deepseekBase}/v1/tools/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.deepseekKey}` },
+    body: JSON.stringify({ query: q, count: TOP_RESULTS }),
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    return { error: `搜索接口返回 ${response.status}${detail ? `：${detail}` : ''}` }
+  }
+  const body = await response.json()
+  // 归一化到与 serper 条目相同的形状（link），下游渲染与抓取管线不用分叉；
+  // summary 是 600-800 字模型可读长摘要，一并保留给模型
+  const items = (body.results ?? []).slice(0, TOP_RESULTS).map((item) => ({
+    title: item.title,
+    link: item.url,
+    snippet: [item.summary ?? '', item.snippet ?? ''].filter(Boolean).join(' — '),
+  }))
+  return { items }
+}
+
+/** 抓一个页面的正文（DeepSeek fetch）。失败转为文本标注而不是抛错。 */
+async function fetchPageDeepseek(config, url, fetchImpl) {
+  try {
+    const response = await fetchImpl(`${config.deepseekBase}/v1/tools/fetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.deepseekKey}` },
+      body: JSON.stringify({ url }),
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      return `（正文获取失败：${response.status}${detail ? ` ${detail}` : ''}）`
+    }
+    const body = await response.json().catch(() => null)
+    return String(body?.content ?? '').slice(0, PAGE_MAX_CHARS)
+  } catch (cause) {
+    return `（正文获取失败：${cause.message}）`
+  }
+}
+
+/** 当前生效的搜索提供方：deepseek 优先（配了 key 即切换），否则 serper+jina。 */
+function resolveProvider(config) {
+  if (config.deepseekKey) return { searchOne: searchOneDeepseek, fetchPage: fetchPageDeepseek, canFetch: () => true }
+  return { searchOne: searchOneSerper, fetchPage: fetchPageJina, canFetch: () => Boolean(config.jinaKey) }
+}
+
+/** 单次 search 实际生效的抓取页数上限：config.fetchPages 显式覆盖（0 = 只检索不抓正文），默认 MAX_FETCH_PAGES。 */
+function fetchPagesCap(config) {
+  const v = config.fetchPages
+  return Number.isInteger(v) && v >= 0 ? v : MAX_FETCH_PAGES
+}
+
 /**
  * 打包的联网搜索：多关键词各自检索 + 抓回顶部页面正文，一次完成。
  * 检索与抓取全部并发；同一 URL 无论被几个关键词命中只抓一次。
  */
 async function searchAndFetch(config, queries, fetchImpl) {
-  if (!config.serperKey) return '搜索工具未配置（缺少 SERPER_KEY）'
+  const provider = resolveProvider(config)
+  if (!config.serperKey && !config.deepseekKey) return '搜索工具未配置（缺少 SERPER_KEY 或 DEEPSEEK_KEY）'
 
   const searched = new Map()
   const results = await Promise.all(
     queries.map(async (q, index) => {
       if (searched.has(q)) return { q, index, duplicate: true }
       searched.set(q, index)
-      return { q, index, ...(await searchOne(config, q, fetchImpl)) }
+      return { q, index, ...(await provider.searchOne(config, q, fetchImpl)) }
     }),
   )
 
   /** 待抓正文页面：按关键词顺序、结果排名去重；词多时封顶，防止抓取量膨胀。 */
   const toFetch = []
   const seenUrls = new Set()
+  const cap = fetchPagesCap(config)
   for (const result of results) {
     for (const item of (result.items ?? []).slice(0, FETCH_TOP_RESULTS)) {
-      if (toFetch.length >= MAX_FETCH_PAGES) break
+      if (toFetch.length >= cap) break
       if (!seenUrls.has(item.link)) {
         seenUrls.add(item.link)
         toFetch.push(item.link)
@@ -75,9 +132,9 @@ async function searchAndFetch(config, queries, fetchImpl) {
     }
   }
   const pageContents = new Map()
-  if (config.jinaKey) {
+  if (provider.canFetch()) {
     await Promise.all(
-      toFetch.map(async (url) => pageContents.set(url, await fetchPage(config, url, fetchImpl))),
+      toFetch.map(async (url) => pageContents.set(url, await provider.fetchPage(config, url, fetchImpl))),
     )
   }
 

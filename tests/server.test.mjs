@@ -98,6 +98,16 @@ describe('loadServerConfig', () => {
     const config = loadServerConfig({ AI_MODELS: 'a, b ,c' })
     expect(config.models).toEqual(['a', 'b', 'c'])
   })
+
+  it('读取 DeepSeek 搜索服务的密钥与端点（缺省走官方地址）', () => {
+    expect(loadServerConfig({ DEEPSEEK_KEY: ' dk ' })).toMatchObject({
+      deepseekKey: 'dk',
+      deepseekBase: 'https://api.deepseek.com',
+    })
+    expect(loadServerConfig({ DEEPSEEK_BASE: 'https://proxy.internal/' })).toMatchObject({
+      deepseekBase: 'https://proxy.internal',
+    })
+  })
 })
 
 describe('GET /api/health', () => {

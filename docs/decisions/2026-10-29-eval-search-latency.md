@@ -139,3 +139,36 @@ jina 已双层并发，3 的价值在减总量而非提并发，待后续数据�
 
 遗留观察：read-verify 类「深度核查」需求在收紧预算下行为明显变慢于普通搜索题但仍近 100s，
 是否接受此档、以及单 doc 抓取时延是否可以再优化（如压缩 PAGE_MAX_CHARS）留给后续数据决定。
+
+## 方法 ② 实测：DeepSeek search/fetch 提供方（2026-10-31，`--runs 2`）
+
+接入方式：`tools.mjs` 支持 DEEPSEEK_KEY 环境变量配置后整体切换——打包 search 走
+`api.deepseek.com/v1/tools/search`（返回条目含 600-800 字 summary）+ `/v1/tools/fetch`（抓正文，有缓存）。
+同一对外契约与输出格式。
+
+结果（对比 capped 33.1s）：
+
+| 方案 | 总时延 | 结论 |
+|---|---|---|
+| capped（serper+jina 抓正文，现有） | 33.1s | 基线 |
+| deepseek 抓正文 | 42.6s | +29%，fetch 冷页比 jina 慢 2-10 倍 |
+| **ds-nofetch（DS 只吃 summary 不抓正文）** | **22.5-26.5s** | **-20%~-32%，最优** |
+| serper-nofetch（serper 只吃 snippet） | 32.1s | -3%，信息不足反致搜索膨胀 |
+
+关键发现：
+
+- **缓存没有兑现**：学习场景同一查询几乎不被重复抓取，DeepSeek 同页 2 次缓存 0.5s 的收益≈0；
+  冷页 DS fetch 5-13s/页，显著慢于 jina 0.3-1.5s。
+- **summary 才是核心价值**：DS search 返回的 600-800 字长摘要足以支撑作答，砍掉抓正文整块
+  （fetch 5-10s/页 × 多页），这就是 ds-nofetch 收益来源。
+- **质量不掉**：并排三题人工核对（诺奖/QUIC/乒乓球决赛），ds-nofetch 事实全对（含正确归因）、
+  口径差异分析到位；serper-nofetch 关键事实出错（颁奖单位错写）。引用完整。
+
+真实遗留隐患：ds 版 read-verify 里模型自称「逐段读到原文」实际只看了 summary——归因不准，
+后续要加提示词约束（「引用 based on summary 而非原文」）；如有必要可加 judge 评分。
+
+## 工具实现改进（2026-10-31）
+
+- **fetchPages 旋钮**：`config.fetchPages` 整数覆盖（0 = 只检索不抓正文），CLI 加 `--fetch-pages` 配套。
+- **评测分类从提供方改为阶段**：`serper/jina` 等旧 kind 改为 `search/fetch`，报告字段同步
+  → 换提供方不再改评测代码，旧报告字段缺失时对比视图明确标住无法拆分而不是输出 NaN。

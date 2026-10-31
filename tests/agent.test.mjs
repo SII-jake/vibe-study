@@ -143,6 +143,85 @@ describe('executeTool', () => {
     const out = await executeTool(noKey, 'search', { queries: ['x'] }, vi.fn())
     expect(out).toContain('未配置')
   })
+
+  describe('deepseek 提供方（配置 deepseekKey 时切换）', () => {
+    const dsConfig = {
+      ...bundleConfig,
+      deepseekKey: 'ds-k',
+      deepseekBase: 'https://api.deepseek.com',
+    }
+    const DS_SEARCH_BODY = {
+      results: [
+        { title: '页面甲', url: 'https://a.com/1', snippet: '片段', summary: '长摘要甲', authority: 4 },
+        { title: '页面乙', url: 'https://b.com/2', snippet: '片段', summary: '长摘要乙', authority: 3 },
+      ],
+    }
+
+    it('同一打包契约下改调 deepseek search/fetch 端点', async () => {
+      const fetchImpl = vi.fn(async (url, init) => {
+        const urlStr = String(url)
+        expect(init.headers.Authorization).toBe('Bearer ds-k')
+        if (urlStr === 'https://api.deepseek.com/v1/tools/search') return jsonResponse(DS_SEARCH_BODY)
+        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') {
+          return jsonResponse({ title: 't', content: '正文 ' + JSON.parse(init.body).url })
+        }
+        throw new Error(`未知请求 ${urlStr}`)
+      })
+      const out = await executeTool(dsConfig, 'search', { queries: ['词一'] }, fetchImpl)
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('serper'))).toBe(false)
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('r.jina.ai'))).toBe(false)
+      // search 一次 + fetch 两页
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/search'))).toHaveLength(1)
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch'))).toHaveLength(2)
+      expect(out).toContain('页面甲')
+      expect(out).toContain('https://a.com/1')
+      expect(out).toContain('长摘要甲')
+      expect(out).toContain('正文 https://a.com/1')
+    })
+
+    it('抓取页数封顶与去重逻辑同样生效', async () => {
+      const fetchImpl = vi.fn(async (url) => {
+        const urlStr = String(url)
+        if (urlStr === 'https://api.deepseek.com/v1/tools/search') {
+          return jsonResponse({ results: [
+            { title: 'a', url: 'https://x.com/a', snippet: '', summary: 'sa' },
+            { title: 'b', url: 'https://x.com/b', snippet: '', summary: 'sb' },
+          ] })
+        }
+        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return jsonResponse({ title: '', content: 'c' })
+        throw new Error(urlStr)
+      })
+      // 3 个词 × 前 2 页 = 6 候选，封顶 4
+      await executeTool(dsConfig, 'search', { queries: ['一', '二', '三'] }, fetchImpl)
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/search'))).toHaveLength(3)
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch')).length).toBeLessThanOrEqual(4)
+    })
+
+    it('search 接口失败与单页抓取失败都转为文本，不抛错', async () => {
+      const fetchImpl = vi.fn(async (url, init) => {
+        const urlStr = String(url)
+        if (urlStr === 'https://api.deepseek.com/v1/tools/search') return new Response('denied', { status: 402 })
+        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return new Response('slow', { status: 429 })
+        throw new Error(urlStr)
+      })
+      const out = await executeTool(dsConfig, 'search', { queries: ['词一'] }, fetchImpl)
+      expect(out).toMatch(/402|失败/)
+    })
+
+    it('抓取页数设为 0 时完全跳过抓取，模型只拿到检索摘要（含长 summary）', async () => {
+      const fetchImpl = vi.fn(async (url) => {
+        const urlStr = String(url)
+        if (urlStr === 'https://api.deepseek.com/v1/tools/search') return jsonResponse(DS_SEARCH_BODY)
+        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return jsonResponse({ title: '', content: '正文' })
+        throw new Error(urlStr)
+      })
+      const out = await executeTool({ ...dsConfig, fetchPages: 0 }, 'search', { queries: ['词一'] }, fetchImpl)
+      // fetch 零调用：全部时延大头被砍掉，模型只靠 summary 作答
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch'))).toHaveLength(0)
+      expect(out).toContain('页面甲')
+      expect(out).toContain('长摘要甲')
+    })
+  })
 })
 
 describe('TOOL_DEFS', () => {

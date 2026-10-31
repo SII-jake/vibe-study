@@ -24,15 +24,29 @@ function jsonResponse(payload = {}) {
 describe('classifyUrl', () => {
   it('按配置的上游地址区分 llm / serper / jina / other', () => {
     expect(classifyUrl(`${config.baseUrl}/chat/completions`, config)).toBe('llm')
-    expect(classifyUrl('https://google.serper.dev/search', config)).toBe('serper')
-    expect(classifyUrl('https://r.jina.ai/https://a.com', config)).toBe('jina')
+    // 分类按「阶段」命名而不是按提供方：检索统一为 search，抓正文统一为 fetch，
+    // 换提供方（serper→deepseek）时评测代码与报告口径不用再改
+    expect(classifyUrl('https://google.serper.dev/search', config)).toBe('search')
+    expect(classifyUrl('https://r.jina.ai/https://a.com', config)).toBe('fetch')
     expect(classifyUrl('https://unrelated.example/x', config)).toBe('other')
   })
 
   it('配置换成自定义域名时仍按配置归类，不认死字符串', () => {
     const custom = { ...config, serperBase: 'https://proxy.internal/serper' }
-    expect(classifyUrl('https://proxy.internal/serper/search', custom)).toBe('serper')
+    expect(classifyUrl('https://proxy.internal/serper/search', custom)).toBe('search')
     expect(classifyUrl('https://google.serper.dev/search', custom)).toBe('other')
+  })
+
+  it('deepseek 提供方的 tools/search 与 tools/fetch 端点分别归入 search 与 fetch', () => {
+    const ds = { ...config, deepseekBase: 'https://api.deepseek.com' }
+    expect(classifyUrl('https://api.deepseek.com/v1/tools/search', ds)).toBe('search')
+    expect(classifyUrl('https://api.deepseek.com/v1/tools/fetch', ds)).toBe('fetch')
+  })
+
+  it('LLM 上游与 deepseekBase 同域时，completion 仍归 llm 不误判为 search', () => {
+    const mixed = { ...config, baseUrl: 'https://api.deepseek.com/v1', deepseekBase: 'https://api.deepseek.com' }
+    expect(classifyUrl('https://api.deepseek.com/v1/chat/completions', mixed)).toBe('llm')
+    expect(classifyUrl('https://api.deepseek.com/v1/tools/search', mixed)).toBe('search')
   })
 })
 
@@ -47,7 +61,7 @@ describe('createInstrumentedFetch', () => {
     await fetchImpl('https://google.serper.dev/search', {})
     expect(events).toHaveLength(2)
     expect(events[0].kind).toBe('llm')
-    expect(events[1].kind).toBe('serper')
+    expect(events[1].kind).toBe('search')
     expect(events[0].ms).toBeGreaterThanOrEqual(0)
   })
 
@@ -92,7 +106,7 @@ describe('createInstrumentedFetch', () => {
     const { fetchImpl, events } = createInstrumentedFetch(inner, config)
     await expect(fetchImpl('https://r.jina.ai/https://a.com', {})).rejects.toThrow(/timeout/)
     // 失败前真实花掉的时间必须落进报告，丢成 0ms 会把「慢而失败」记成「快而失败」
-    expect(events[0].kind).toBe('jina')
+    expect(events[0].kind).toBe('fetch')
     expect(events[0].ms).toBeGreaterThanOrEqual(30)
     expect(events[0].headerMs).toBeGreaterThanOrEqual(30)
     expect(events[0].error).toBe(true)
@@ -114,17 +128,19 @@ describe('runQuestion', () => {
     }
     const metrics = await runQuestion({ runner: fakeRunner, config, question, fetchImpl: async () => jsonResponse() })
     expect(metrics.llmCalls).toBe(2)
-    expect(metrics.serperCalls).toBe(1)
-    expect(metrics.jinaCalls).toBe(0)
+    expect(metrics.searchCalls).toBe(1)
+    expect(metrics.fetchCalls).toBe(0)
     expect(metrics.totalMs).toBeGreaterThanOrEqual(metrics.llmMs)
     expect(metrics.firstDeltaMs).not.toBeNull()
     expect(metrics.firstDeltaMs).toBeLessThanOrEqual(metrics.totalMs)
     expect(metrics.contentLen).toBe('答案是利滚利 https://a.com'.length)
     expect(metrics.hasLinks).toBe(true)
     expect(metrics.error).toBeUndefined()
+    // 回答全文入报告：跨方案质量对比（事实密度、引用）的原料，不能只留长度
+    expect(metrics.content).toBe('答案是利滚利 https://a.com')
     // 逐跳明细进报告：慢在哪一跳可以直接从这个数组里看，不用靠猜
     expect(metrics.steps).toEqual([{ tool: 'search', detail: '复利' }])
-    expect(metrics.events.map((e) => e.kind)).toEqual(['llm', 'serper', 'llm'])
+    expect(metrics.events.map((e) => e.kind)).toEqual(['llm', 'search', 'llm'])
   })
 
   it('全程没有增量输出时 firstDeltaMs 为 null', async () => {
@@ -146,9 +162,9 @@ describe('runQuestion', () => {
 
 describe('aggregateRuns', () => {
   const runs = [
-    { totalMs: 100, firstDeltaMs: 40, llmCalls: 2, llmMs: 60, serperCalls: 1, serperMs: 20, jinaCalls: 1, jinaMs: 15, contentLen: 500, hasLinks: true },
-    { totalMs: 200, firstDeltaMs: 80, llmCalls: 4, llmMs: 120, serperCalls: 2, serperMs: 40, jinaCalls: 2, jinaMs: 25, contentLen: 700, hasLinks: true },
-    { totalMs: 300, firstDeltaMs: 120, llmCalls: 6, llmMs: 180, serperCalls: 3, serperMs: 60, jinaCalls: 3, jinaMs: 35, contentLen: 900, hasLinks: false },
+    { totalMs: 100, firstDeltaMs: 40, llmCalls: 2, llmMs: 60, searchCalls: 1, searchMs: 20, fetchCalls: 1, fetchMs: 15, contentLen: 500, hasLinks: true },
+    { totalMs: 200, firstDeltaMs: 80, llmCalls: 4, llmMs: 120, searchCalls: 2, searchMs: 40, fetchCalls: 2, fetchMs: 25, contentLen: 700, hasLinks: true },
+    { totalMs: 300, firstDeltaMs: 120, llmCalls: 6, llmMs: 180, searchCalls: 3, searchMs: 60, fetchCalls: 3, fetchMs: 35, contentLen: 900, hasLinks: false },
   ]
 
   it('各项时延指标取中位数（奇数个运行）', () => {
@@ -157,7 +173,7 @@ describe('aggregateRuns', () => {
     expect(median.totalMs).toBe(200)
     expect(median.firstDeltaMs).toBe(80)
     expect(median.llmCalls).toBe(4)
-    expect(median.serperMs).toBe(40)
+    expect(median.searchMs).toBe(40)
     expect(median.contentLen).toBe(700)
   })
 
@@ -208,7 +224,7 @@ describe('compareReports', () => {
         id,
         expectedToolUse,
         runs: [
-          { totalMs, firstDeltaMs: totalMs / 2, llmCalls: 2, llmMs: totalMs / 2, serperCalls: 1, serperMs: 10, jinaCalls: 0, jinaMs: 0, contentLen: 100, hasLinks: true },
+          { totalMs, firstDeltaMs: totalMs / 2, llmCalls: 2, llmMs: totalMs / 2, searchCalls: 1, searchMs: 10, fetchCalls: 0, fetchMs: 0, contentLen: 100, hasLinks: true },
         ],
       })),
       meta: { tag, runsPerQuestion: 1 },

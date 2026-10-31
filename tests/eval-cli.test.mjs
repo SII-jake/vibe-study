@@ -30,6 +30,14 @@ describe('parseArgs', () => {
   it('runs 是非法数字时落到 1', () => {
     expect(parseArgs(['node', 'e', '--runs', 'abc']).runs).toBe(1)
   })
+
+  it('fetchPages 覆盖项：--fetch-pages 传入非负整数，缺省为 null 不覆盖', () => {
+    expect(parseArgs(['node', 'e']).fetchPages).toBeNull()
+    expect(parseArgs(['node', 'e', '--fetch-pages', '0']).fetchPages).toBe(0)
+    expect(parseArgs(['node', 'e', '--fetch-pages', '2']).fetchPages).toBe(2)
+    expect(parseArgs(['node', 'e', '--fetch-pages', 'abc']).fetchPages).toBeNull()
+    expect(parseArgs(['node', 'e', '--fetch-pages', '-1']).fetchPages).toBeNull()
+  })
 })
 
 describe('validateQuestions', () => {
@@ -62,8 +70,8 @@ describe('formatComparison', () => {
         candMs: 1300,
         deltaMs: -700,
         deltaPct: -35,
-        baseMedian: { llmCalls: 3, serperCalls: 1, serperMs: 2000, serperWallMs: 2100, jinaCalls: 1, jinaMs: 6000, jinaWallMs: 6200, firstDeltaMs: 900, contentLen: 800 },
-        candMedian: { llmCalls: 2, serperCalls: 2, serperMs: 5000, serperWallMs: 2600, jinaCalls: 0, jinaMs: 0, jinaWallMs: 0, firstDeltaMs: 700, contentLen: 750 },
+        baseMedian: { llmCalls: 3, searchCalls: 1, searchMs: 2000, searchWallMs: 2100, fetchCalls: 1, fetchMs: 6000, fetchWallMs: 6200, firstDeltaMs: 900, contentLen: 800 },
+        candMedian: { llmCalls: 2, searchCalls: 2, searchMs: 5000, searchWallMs: 2600, fetchCalls: 0, fetchMs: 0, fetchWallMs: 0, firstDeltaMs: 700, contentLen: 750 },
       },
     ],
   }
@@ -97,5 +105,21 @@ describe('formatComparison', () => {
     }
     const text = formatComparison(missing)
     expect(text).toContain('缺题')
+  })
+
+  it('一侧报告是旧的字段结构（改名前生成）时，分项标注无法拆分而不是输出 NaN', () => {
+    const legacy = {
+      ...comparison,
+      rows: [
+        {
+          ...comparison.rows[0],
+          baseMedian: { llmCalls: 3, firstDeltaMs: 900, contentLen: 800 },
+        },
+      ],
+    }
+    const text = formatComparison(legacy)
+    expect(text).toContain('无法拆分')
+    expect(text).not.toContain('NaN')
+    expect(text).not.toContain('undefined')
   })
 })

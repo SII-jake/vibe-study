@@ -32,6 +32,7 @@ export function parseArgs(argv) {
     runner: 'current',
     questionsPath: join(here, 'questions.json'),
     comparePath: null,
+    fetchPages: null,
   }
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index]
@@ -51,6 +52,12 @@ export function parseArgs(argv) {
       index += 1
     } else if (flag === '--compare') {
       options.comparePath = String(value ?? '')
+      index += 1
+    } else if (flag === '--fetch-pages') {
+      // 覆盖单次 search 的抓正文页数上限（0 = 只检索不抓正文）；
+      // 缺省 null 不动工具默认
+      const parsed = Number(value)
+      options.fetchPages = Number.isInteger(parsed) && parsed >= 0 ? parsed : null
       index += 1
     }
   }
@@ -88,11 +95,16 @@ function formatDeltaPct(value) {
 /** 一侧的 search/fetch 分项行：次数、总耗时、最慢一跳（并发批的壁钟近似）。 */
 function formatBreakdown(label, median) {
   if (!median) return `${label}：缺题`
+  // 旧报告（分类改为按阶段命名前生成）没有 search*/fetch* 字段，
+  // 与其输出 undefined/NaN 不如明说无法拆分
+  if (median.searchCalls === undefined || median.searchMs === undefined) {
+    return `  ${label}：字段结构不同（旧版报告），无法拆分 search/fetch`
+  }
   const sec = (v) => (v / 1000).toFixed(1)
   return (
     `  ${label}：` +
-    `搜索 ${median.serperCalls} 次共 ${sec(median.serperMs)}s（壁钟 ${sec(median.serperWallMs ?? 0)}s），` +
-    `抓取 ${median.jinaCalls} 页共 ${sec(median.jinaMs)}s（壁钟 ${sec(median.jinaWallMs ?? 0)}s）`
+    `搜索 ${median.searchCalls} 次共 ${sec(median.searchMs)}s（壁钟 ${sec(median.searchWallMs ?? 0)}s），` +
+    `抓取 ${median.fetchCalls} 页共 ${sec(median.fetchMs)}s（壁钟 ${sec(median.fetchWallMs ?? 0)}s）`
   )
 }
 
@@ -124,8 +136,8 @@ function formatQuestionDetail(question) {
     `${question.id}: 总 ${Math.round(median.totalMs)}ms` +
     `（首增量 ${median.firstDeltaMs === null ? '无' : `${Math.round(median.firstDeltaMs)}ms`}，` +
     `LLM ${median.llmCalls} 次共 ${Math.round(median.llmMs)}ms（响应头 ${Math.round(median.llmHeaderMs)}ms），` +
-    `搜索 ${median.serperCalls} 次共 ${Math.round(median.serperMs)}ms，` +
-    `读页 ${median.jinaCalls} 次共 ${Math.round(median.jinaMs)}ms）`
+    `搜索 ${median.searchCalls} 次共 ${Math.round(median.searchMs)}ms，` +
+    `读页 ${median.fetchCalls} 次共 ${Math.round(median.fetchMs)}ms）`
   )
 }
 
@@ -139,7 +151,10 @@ async function main() {
 
   const questionsPath = resolve(options.questionsPath)
   const questions = validateQuestions(JSON.parse(readFileSync(questionsPath, 'utf8')))
-  const config = loadServerConfig(withEnvSource(process.env, () => readFileSync(join(here, '../server/.env'), 'utf8')))
+  const config = {
+    ...loadServerConfig(withEnvSource(process.env, () => readFileSync(join(here, '../server/.env'), 'utf8'))),
+    ...(options.fetchPages === null ? {} : { fetchPages: options.fetchPages }),
+  }
   if (config.apiKey === '' || config.model === '') {
     console.error('未配置 AI_API_KEY / AI_MODEL，评测需要真实链路的密钥（server/.env 或环境变量）。')
     process.exit(1)
@@ -156,7 +171,7 @@ async function main() {
       const metrics = await runQuestion({ runner, config, question })
       runs.push(metrics)
       console.error(
-        `[eval]   总 ${Math.round(metrics.totalMs)}ms，LLM ${metrics.llmCalls} 次，搜索 ${metrics.serperCalls} 次，读页 ${metrics.jinaCalls} 次` +
+        `[eval]   总 ${Math.round(metrics.totalMs)}ms，LLM ${metrics.llmCalls} 次，搜索 ${metrics.searchCalls} 次，读页 ${metrics.fetchCalls} 次` +
           (metrics.error ? `（失败：${metrics.error}）` : ''),
       )
     }

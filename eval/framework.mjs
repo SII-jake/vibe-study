@@ -14,7 +14,11 @@ import { runAgentTurn } from '../server/agent.mjs'
 
 const MS = Date.now
 
-/** 按配置的上游地址，把一个 URL 归类为 llm / serper / jina / other。不认死字符串。 */
+/**
+ * 按配置的上游地址，把一个 URL 归类为 llm / search / fetch / other。
+ * 分类按「阶段」命名而不是按提供方（serper→search、jina→fetch）：
+ * 换提供方（如 serper+jina → DeepSeek search+fetch）时评测代码与报告口径不变。
+ */
 export function classifyUrl(urlString, config) {
   const raw = String(urlString ?? '')
   let parsed
@@ -24,9 +28,15 @@ export function classifyUrl(urlString, config) {
     return 'other'
   }
   const base = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
+  // LLM 上游若与 deepseekBase 同域，/v1/tools/* 是搜索服务，其余按 llm 归；
+  // 先判更具体的 tools 端点，再判 llm 前缀，避免同域误判
+  if (config.deepseekBase) {
+    if (base === `${config.deepseekBase}/v1/tools/search`) return 'search'
+    if (base === `${config.deepseekBase}/v1/tools/fetch`) return 'fetch'
+  }
   if (base.startsWith(config.baseUrl)) return 'llm'
-  if (config.serperBase && base.startsWith(config.serperBase)) return 'serper'
-  if (config.jinaBase && base.startsWith(config.jinaBase)) return 'jina'
+  if (config.serperBase && base.startsWith(config.serperBase)) return 'search'
+  if (config.jinaBase && base.startsWith(config.jinaBase)) return 'fetch'
   return 'other'
 }
 
@@ -105,15 +115,16 @@ function emptyMetrics() {
     llmCalls: 0,
     llmHeaderMs: 0,
     llmMs: 0,
-    serperCalls: 0,
-    serperMs: 0,
-    serperWallMs: 0,
-    jinaCalls: 0,
-    jinaMs: 0,
-    jinaWallMs: 0,
+    searchCalls: 0,
+    searchMs: 0,
+    searchWallMs: 0,
+    fetchCalls: 0,
+    fetchMs: 0,
+    fetchWallMs: 0,
     otherCalls: 0,
     otherMs: 0,
     contentLen: 0,
+    content: '',
     hasLinks: false,
     steps: [],
     events: [],
@@ -158,6 +169,9 @@ export async function runQuestion({ runner = runAgentTurn, config, question, fet
     if (headerField in metrics) metrics[headerField] += event.headerMs ?? event.ms
   }
   metrics.contentLen = streamed.length
+  // 回答全文入报告：跨方案质量对比（事实密度、引用情况）的原料；
+  // 报告体积可控（单题几 KB）
+  metrics.content = streamed
   metrics.hasLinks = /https?:\/\/\S+/u.test(streamed)
   metrics.events = events.map(({ kind, url, headerMs, ms }) => ({ kind, url, headerMs, ms }))
   return metrics
@@ -179,12 +193,12 @@ const MEDIAN_FIELDS = [
   'llmCalls',
   'llmHeaderMs',
   'llmMs',
-  'serperCalls',
-  'serperMs',
-  'serperWallMs',
-  'jinaCalls',
-  'jinaMs',
-  'jinaWallMs',
+  'searchCalls',
+  'searchMs',
+  'searchWallMs',
+  'fetchCalls',
+  'fetchMs',
+  'fetchWallMs',
   'contentLen',
 ]
 

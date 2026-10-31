@@ -43,6 +43,9 @@ export function loadServerConfig(source = process.env) {
     serperBase: stripSlash(source.SERPER_BASE ?? 'https://google.serper.dev'),
     jinaKey: (source.JINA_KEY ?? '').trim(),
     jinaBase: stripSlash(source.JINA_BASE ?? 'https://r.jina.ai'),
+    /** DeepSeek 搜索服务（直连 api.deepseek.com 的 /v1/tools/*），配置后替代 serper+jina。 */
+    deepseekKey: (source.DEEPSEEK_KEY ?? '').trim(),
+    deepseekBase: stripSlash(source.DEEPSEEK_BASE ?? 'https://api.deepseek.com'),
     /** 单次上游请求的超时上限（ms）。模型冷启会慢，但挂起的请求不能无限等。 */
     llmTimeoutMs: parseTimeoutMs(source.LLM_TIMEOUT_MS),
   }
