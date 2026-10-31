@@ -42,93 +42,49 @@ describe('executeTool', () => {
         const q = JSON.parse(init.body).q
         return jsonResponse(q === '词一' ? ORGANIC_A : ORGANIC_B)
       }
-      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
+      if (urlStr.startsWith('https://r.jina.ai/')) throw new Error('search 不应该触发抓取')
       throw new Error(`未知请求 ${urlStr}`)
     })
     const out = await executeTool(bundleConfig, 'search', { queries: ['词一', '词二'] }, fetchImpl)
 
-    // 两个 serper 调用、两个 jina 调用，一次发起
+    // 两个 serper 调用并行发出；search 是纯检索，jina 抓取只发生在用户消息带 URL 的场景
     expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('serper.dev'))).toHaveLength(2)
-    const jinaCalls = fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))
-    expect(jinaCalls).toHaveLength(2)
-    expect(jinaCalls.map(([u]) => String(u))).toEqual([
-      'https://r.jina.ai/https://a.com/1',
-      'https://r.jina.ai/https://b.com/2',
-    ])
+    expect(fetchImpl.mock.calls.some(([u]) => String(u).startsWith('https://r.jina.ai/'))).toBe(false)
     expect(out).toContain('页面甲')
     expect(out).toContain('https://a.com/1')
-    expect(out).toContain('正文')
+    expect(out).toContain('摘要甲')
     expect(out).toContain('页面乙')
   })
 
-  it('多关键词命中的页面去重，同 URL 只抓一次正文', async () => {
-    // 两个关键词都命中同一页面
+  it('重复关键词去重，同词只检索一次', async () => {
     const fetchImpl = vi.fn(async (url) => {
       const urlStr = String(url)
       if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
-      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
       throw new Error(`未知请求 ${urlStr}`)
     })
     await executeTool(bundleConfig, 'search', { queries: ['词一', '词一'] }, fetchImpl)
     expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('serper.dev'))).toHaveLength(1)
-    expect(fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))).toHaveLength(1)
-  })
-
-  it('单次 search 调用抓正文总页数封顶（≤4 页），按结果排名取前面的', async () => {
-    // 3 个关键词 × 每词抓 top 2 = 6 个候选页，超出 4 页封顶：只抓前 4 个
-    const ORGANIC_C = { organic: [{ title: '页面丙', link: 'https://c.com/3', snippet: '摘要丙' }] }
-    const fetchImpl = vi.fn(async (url, init) => {
-      const urlStr = String(url)
-      if (urlStr === 'https://google.serper.dev/search') {
-        const q = JSON.parse(init.body).q
-        return jsonResponse({ organic: [
-          { title: `t${q}1`, link: `https://p.com/${q}-1`, snippet: 's' },
-          { title: `t${q}2`, link: `https://p.com/${q}-2`, snippet: 's' },
-        ] })
-      }
-      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
-      throw new Error(`未知请求 ${urlStr}`)
-    })
-    await executeTool(bundleConfig, 'search', { queries: ['词一', '词二', '词三'] }, fetchImpl)
-    const jinaCalls = fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))
-    expect(jinaCalls.length).toBeLessThanOrEqual(4)
-    // 排名靠前的页面优先被抓取：词一、词二各占 2 页
-    const urls = jinaCalls.map(([u]) => String(u))
-    expect(urls).toContain('https://r.jina.ai/https://p.com/词一-1')
-    expect(urls).toContain('https://r.jina.ai/https://p.com/词一-2')
-  })
-
-  it('单页抓取失败不影响其它页面，失败处标注', async () => {
-    const fetchImpl = vi.fn(async (url) => {
-      const urlStr = String(url)
-      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
-      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('too many', { status: 429 })
-      throw new Error(`未知请求 ${urlStr}`)
-    })
-    const out = await executeTool(bundleConfig, 'search', { queries: ['词一'] }, fetchImpl)
-    expect(out).toMatch(/页面甲/)
-    expect(out).toMatch(/429|失败/)
-  })
-
-  it('正文截到每页上限，避免超长页面把上下文撑爆', async () => {
-    const fetchImpl = vi.fn(async (url) => {
-      const urlStr = String(url)
-      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
-      if (urlStr.startsWith('https://r.jina.ai/')) return new Response('正'.repeat(5000), { status: 200 })
-      throw new Error(`未知请求 ${urlStr}`)
-    })
-    const out = await executeTool(bundleConfig, 'search', { queries: ['词一'] }, fetchImpl)
-    expect(out.length).toBeLessThan(5000)
   })
 
   it('query 单字符串与 queries 数组都接受', async () => {
     const fetchImpl = vi.fn(async (url) => {
       if (String(url).includes('serper.dev')) return jsonResponse(ORGANIC_A)
-      if (String(url).startsWith('https://r.jina.ai/')) return new Response('正文', { status: 200 })
       throw new Error(String(url))
     })
     const out = await executeTool(bundleConfig, 'search', { query: '单个词' }, fetchImpl)
     expect(out).toContain('页面甲')
+  })
+
+  it('模型不带也不带得动抓取参数：search 只认检索，任何抓取类参数都被忽略', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr === 'https://google.serper.dev/search') return jsonResponse(ORGANIC_A)
+      if (urlStr.startsWith('https://r.jina.ai/')) throw new Error('search 不应该触发抓取')
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    // 历史遗留参数 fetch_pages 不再生效：search 永不抓正文
+    await executeTool(bundleConfig, 'search', { queries: ['词一'], fetch_pages: 4 }, fetchImpl)
+    expect(fetchImpl.mock.calls.some(([u]) => String(u).startsWith('https://r.jina.ai/'))).toBe(false)
   })
 
   it('keywords 为空时返回说明，不发任何请求', async () => {
@@ -139,7 +95,8 @@ describe('executeTool', () => {
   })
 
   it('缺少密钥时返回不可用说明而不是抛错', async () => {
-    const noKey = { ...bundleConfig, serperKey: '', jinaKey: '' }
+    // 检索三重密钥都没有时才算未配置；fetch 缺 jina 或 deepseek 都可以单独报错不阻塞检索
+    const noKey = { ...bundleConfig, serperKey: '', jinaKey: '', deepseekKey: '' }
     const out = await executeTool(noKey, 'search', { queries: ['x'] }, vi.fn())
     expect(out).toContain('未配置')
   })
@@ -157,69 +114,32 @@ describe('executeTool', () => {
       ],
     }
 
-    it('同一打包契约下改调 deepseek search/fetch 端点', async () => {
+    it('默认不抓正文：DS 检索吃饱 summary，模型靠 0.5-0.6s 的检索直接作答', async () => {
       const fetchImpl = vi.fn(async (url, init) => {
         const urlStr = String(url)
         expect(init.headers.Authorization).toBe('Bearer ds-k')
         if (urlStr === 'https://api.deepseek.com/v1/tools/search') return jsonResponse(DS_SEARCH_BODY)
-        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') {
-          return jsonResponse({ title: 't', content: '正文 ' + JSON.parse(init.body).url })
-        }
+        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return jsonResponse({ title: 't', content: '正文' })
+        if (urlStr.startsWith('https://r.jina.ai/')) return new Response('jina正文', { status: 200 })
         throw new Error(`未知请求 ${urlStr}`)
       })
       const out = await executeTool(dsConfig, 'search', { queries: ['词一'] }, fetchImpl)
       expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('serper'))).toBe(false)
-      expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('r.jina.ai'))).toBe(false)
-      // search 一次 + fetch 两页
-      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/search'))).toHaveLength(1)
-      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch'))).toHaveLength(2)
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).includes('tools/fetch'))).toBe(false)
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).startsWith('https://r.jina.ai/'))).toBe(false)
       expect(out).toContain('页面甲')
       expect(out).toContain('https://a.com/1')
       expect(out).toContain('长摘要甲')
-      expect(out).toContain('正文 https://a.com/1')
     })
 
-    it('抓取页数封顶与去重逻辑同样生效', async () => {
+    it('search 接口失败转为文本，不抛错', async () => {
       const fetchImpl = vi.fn(async (url) => {
         const urlStr = String(url)
-        if (urlStr === 'https://api.deepseek.com/v1/tools/search') {
-          return jsonResponse({ results: [
-            { title: 'a', url: 'https://x.com/a', snippet: '', summary: 'sa' },
-            { title: 'b', url: 'https://x.com/b', snippet: '', summary: 'sb' },
-          ] })
-        }
-        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return jsonResponse({ title: '', content: 'c' })
-        throw new Error(urlStr)
-      })
-      // 3 个词 × 前 2 页 = 6 候选，封顶 4
-      await executeTool(dsConfig, 'search', { queries: ['一', '二', '三'] }, fetchImpl)
-      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/search'))).toHaveLength(3)
-      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch')).length).toBeLessThanOrEqual(4)
-    })
-
-    it('search 接口失败与单页抓取失败都转为文本，不抛错', async () => {
-      const fetchImpl = vi.fn(async (url, init) => {
-        const urlStr = String(url)
         if (urlStr === 'https://api.deepseek.com/v1/tools/search') return new Response('denied', { status: 402 })
-        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return new Response('slow', { status: 429 })
         throw new Error(urlStr)
       })
       const out = await executeTool(dsConfig, 'search', { queries: ['词一'] }, fetchImpl)
       expect(out).toMatch(/402|失败/)
-    })
-
-    it('抓取页数设为 0 时完全跳过抓取，模型只拿到检索摘要（含长 summary）', async () => {
-      const fetchImpl = vi.fn(async (url) => {
-        const urlStr = String(url)
-        if (urlStr === 'https://api.deepseek.com/v1/tools/search') return jsonResponse(DS_SEARCH_BODY)
-        if (urlStr === 'https://api.deepseek.com/v1/tools/fetch') return jsonResponse({ title: '', content: '正文' })
-        throw new Error(urlStr)
-      })
-      const out = await executeTool({ ...dsConfig, fetchPages: 0 }, 'search', { queries: ['词一'] }, fetchImpl)
-      // fetch 零调用：全部时延大头被砍掉，模型只靠 summary 作答
-      expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes('tools/fetch'))).toHaveLength(0)
-      expect(out).toContain('页面甲')
-      expect(out).toContain('长摘要甲')
     })
   })
 })
@@ -299,6 +219,68 @@ describe('runAgentTurn', () => {
     expect(result.content).toBe('直接回答')
     const calls = fetchImpl.mock.calls.filter(([u]) => String(u).includes('chat/completions'))
     expect(calls).toHaveLength(1)
+  })
+
+  describe('用户消息带 URL 时的正文抓取（唯一触发路径）', () => {
+    const finalPayload = { choices: [{ finish_reason: 'stop', message: { content: '基于页面回答' } }] }
+
+    it('消息里给出 http(s) 链接时，服务端用 jina 抓正文注入上下文，不走模型工具', async () => {
+      const fetchImpl = makeFetch([() => jsonResponse(finalPayload)])
+      const steps = []
+      await runAgentTurn(agentConfig, [{ role: 'user', content: '看看这篇文章讲了什么 https://example.com/post' }], fetchImpl, (s) => steps.push(s))
+      const llmCalls = fetchImpl.mock.calls
+        .filter(([u]) => String(u).includes('chat/completions'))
+        .map(([, init]) => JSON.parse(init.body))
+      // 只有一次 LLM 调用：正文是服务端扫出来的，不占用工具轮
+      expect(llmCalls).toHaveLength(1)
+      const injected = llmCalls[0].messages.find(
+        (m) => m.role === 'system' && String(m.content).includes('https://example.com/post'),
+      )
+      expect(injected).toBeTruthy()
+      expect(String(injected.content)).toContain('页面正文')
+      // 事件里也要能看出来抓了页面，前端能看到进行中状态
+      expect(steps).toEqual([{ tool: 'read_url', detail: 'https://example.com/post' }])
+    })
+
+    it('消息里没有链接时零抓取、零注入', async () => {
+      const fetchImpl = makeFetch([() => jsonResponse(finalPayload)])
+      await runAgentTurn(agentConfig, [{ role: 'user', content: '复利是什么' }], fetchImpl, () => {})
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).startsWith('https://r.jina.ai/'))).toBe(false)
+    })
+
+    it('只认 user 消息里的链接；assistant/tool 消息里的 URL 不触发抓取', async () => {
+      const fetchImpl = makeFetch([() => jsonResponse(finalPayload)])
+      await runAgentTurn(agentConfig, [
+        { role: 'user', content: '上一题讲了什么' },
+        { role: 'assistant', content: '参考 https://example.com/post' },
+        { role: 'user', content: '详细展开一下' },
+      ], fetchImpl, () => {})
+      expect(fetchImpl.mock.calls.some(([u]) => String(u).startsWith('https://r.jina.ai/'))).toBe(false)
+    })
+
+    it('多个链接并发抓取，各自正文都进上下文', async () => {
+      const fetchImpl = makeFetch([() => jsonResponse(finalPayload)])
+      await runAgentTurn(agentConfig, [{ role: 'user', content: '对比 https://a.com/p1 与 https://b.com/p2' }], fetchImpl, () => {})
+      expect(fetchImpl.mock.calls.filter(([u]) => String(u).startsWith('https://r.jina.ai/'))).toHaveLength(2)
+      const llmCalls = fetchImpl.mock.calls
+        .filter(([u]) => String(u).includes('chat/completions'))
+        .map(([, init]) => JSON.parse(init.body))
+      const injected = llmCalls[0].messages.find(
+        (m) => m.role === 'system' && String(m.content).includes('正文列表'),
+      )
+      expect(injected).toBeTruthy()
+    })
+
+    it('jina 未配置或抓取失败时以文本标注，不中断对话', async () => {
+      const noJina = { ...agentConfig, jinaKey: '' }
+      const fetchImpl = makeFetch([() => jsonResponse(finalPayload)])
+      await runAgentTurn(noJina, [{ role: 'user', content: '看 https://example.com/post 讲了什么' }], fetchImpl, () => {})
+      // 没抓正文但对话照常，注入的消息里说明原因
+      const llmCalls = fetchImpl.mock.calls
+        .filter(([u]) => String(u).includes('chat/completions'))
+        .map(([, init]) => JSON.parse(init.body))
+      expect(String(llmCalls[0].messages.find(m => m.role === 'system' && String(m.content).includes('example.com'))?.content)).toMatch(/未配置|失败|错误/)
+    })
   })
 
   it('每次工具调用都会回调状态（搜索词/目标地址）', async () => {
