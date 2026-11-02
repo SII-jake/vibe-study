@@ -423,6 +423,8 @@ button {
   border-bottom: 2px solid var(--accent);
   border-radius: 2px;
   padding-bottom: 1px;
+  /* 下划线可点击打开分支：手型提示避免用户发现不了 */
+  cursor: pointer;
 }
 
 /* 片段下方的引子卡片 */
@@ -789,6 +791,14 @@ button {
   transition: none;
 }
 
+/*
+ * 左栏收起：保留一列按钮宽（展开按钮放在这一列里），阅读区自然错开，
+ * 否则 absolute 悬浮的展开按钮会压到中栏/右栏头部操作（面包屑、返回按钮）。
+ */
+.app-shell[data-sidebar-collapsed] {
+  grid-template-columns: 44px 1fr;
+}
+
 /* 中栏与右栏的分隔条：向左拖右栏变宽、向右拖变窄 */
 .pane-divider {
   position: absolute;
@@ -920,6 +930,59 @@ body:has([data-dragging]) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 收起按钮绝对定位在侧栏内 */
+  position: relative;
+  /*
+   * 显式钉在第一列：与 app-main 的 grid-column:2 配对，展开态 grid
+   * 分配无歧义；折叠态这条规则不参与（aside 此时不在 DOM）。
+   */
+  grid-column: 1;
+}
+
+/*
+ * 收起按钮：常规入流落在侧栏顶部（DOM 在 children 之前、与设置同一行区域），
+ * 不用 margin-top:auto 钉底——放底部的写法导致用户起来找不着（真实反馈），
+ * 顶部挨着设置是用户的预期位置。悬浮绝对定位一律不用：曾压住设置
+ * （绝对定位的教训），入流在所有视口宽度下都有布局分配的空间，
+ * 不可能再被其它控件叠住。
+ */
+.sidebar-collapse-btn {
+  margin: 10px 12px 6px;
+  width: calc(100% - 24px);
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/*
+ * 展开按钮：左栏收起后落在为其保留的按钮列（列宽 44px）里居中；
+ * display:contents 让按钮不参与网格占位，列位置交给列模板撑着。
+ */
+.sidebar-expand-btn {
+  display: block;
+  margin: 12px auto 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.sidebar-expand-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .app-main {
@@ -928,6 +991,13 @@ body:has([data-dragging]) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /*
+   * 常驻钉在第二列：左栏收起时列模板变 0 1fr、展开按钮为 absolute 不占
+   * 网格，auto-placement 会把 app-main 错塞进 0 宽的第一列，中右栏被
+   * overflow:hidden 整片裁掉（曾实测收起后 app-main 宽 0）。钉死后
+   * 展开/折叠两态 grid 分配都落到正确列。
+   */
+  grid-column: 2;
 }
 
 /* 轨道舞台：视口固定宽度并横向裁剪，整条对话链在里面横铺 */
@@ -1050,14 +1120,6 @@ body:has([data-dragging]) {
 }
 
 @media (max-width: 767px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .app-sidebar {
-    display: none;
-  }
-
   .menu-btn {
     display: flex;
   }

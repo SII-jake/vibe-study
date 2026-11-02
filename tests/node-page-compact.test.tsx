@@ -113,4 +113,52 @@ describe('NodePage compact', () => {
     expect(onOpenBranch).toHaveBeenCalledWith('grand')
     expect(onNavigate).not.toHaveBeenCalled()
   })
+
+  it('点选中的那段原文（下划线锚点）与点分支卡片同效：走 onOpenBranch', () => {
+    const grand = addChildNode({
+      id: 'grand',
+      parentId: 'child',
+      anchor: { messageId: 'child-a1', fragmentIndex: 0, text: '复利是指数的' },
+      question: '指数增长有多快？',
+      createdAt: 4,
+    })
+    const nodes = [...withAnswer, grand]
+    const onNavigate = vi.fn()
+    const onOpenBranch = vi.fn()
+    render(
+      <NodePage
+        data={makeData(nodes)}
+        nodeId="child"
+        onNavigate={onNavigate}
+        onOpenTree={() => {}}
+        onOpenBranch={onOpenBranch}
+        compact
+      />,
+    )
+    const mark = container.querySelector('mark.anchor-underline') as HTMLElement
+    expect(mark).not.toBeNull()
+    expect(mark.textContent).toContain('复利是指数的')
+    act(() => mark.click())
+    expect(onOpenBranch).toHaveBeenCalledWith('grand')
+    expect(onNavigate).not.toHaveBeenCalled()
+  })
+
+  it('没有右栏形态（无 onOpenBranch）时点锚点文字退回整页导航 onNavigate', () => {
+    const grand = addChildNode({
+      id: 'grand',
+      parentId: 'child',
+      anchor: { messageId: 'child-a1', fragmentIndex: 0, text: '复利是指数的' },
+      question: '指数增长有多快？',
+      createdAt: 4,
+    })
+    const nodes = [...withAnswer, grand]
+    const onNavigate = vi.fn()
+    render(
+      <NodePage data={makeData(nodes)} nodeId="child" onNavigate={onNavigate} onOpenTree={() => {}} />,
+    )
+    const mark = container.querySelector('mark.anchor-underline') as HTMLElement
+    expect(mark).not.toBeNull()
+    act(() => mark.click())
+    expect(onNavigate).toHaveBeenCalledWith('grand')
+  })
 })

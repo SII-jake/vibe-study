@@ -260,7 +260,11 @@ export function NodePage({
                       <FragmentView
                         fragment={fragment}
                         highlight={highlightByMessage.get(message.id) ?? null}
-                        anchors={children.map((child) => child.anchor?.text ?? '').filter((t) => t !== '')}
+                        anchors={children
+                          .map((child) => ({ text: child.anchor?.text ?? '', nodeId: child.id }))
+                          .filter((a) => a.text !== '')}
+                        // 点选中原文与点分支卡片同一路径：右栏展开优先，否则整页导航
+                        onOpenAnchor={onOpenBranch ?? onNavigate}
                       />
                       {children.map((child) => (
                         <AskCard

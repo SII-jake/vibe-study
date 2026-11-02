@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AskPane } from '../ui/AskPane'
+import { CollapsibleSidebar } from '../ui/CollapsibleSidebar'
 import { NodePage } from '../ui/NodePage'
 import { SessionList } from '../ui/SessionList'
 import { SettingsPage } from '../ui/SettingsPage'
@@ -52,6 +53,10 @@ export function App() {
   const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null)
   /** 右栏正在读的子对话；与 pendingAsk 互斥，同一时刻只出现一个 */
   const [rightNodeId, setRightNodeId] = useState<string | null>(null)
+  /** 左侧栏收起偏好：localStorage 记一次，下次进来直接收起/展开 */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem('sidebar-collapsed') === '1',
+  )
   /** 中心和右栏要一起变，用它告诉 route 副作用这次别清空右栏 */
   const diveRef = useRef<DiveIntent | null>(null)
   /** 中栏宽度：分隔条向右拖变宽，右栏同时让出 */
@@ -195,9 +200,21 @@ export function App() {
   )
 
   return (
-    <div className="app-shell" data-dragging={paneDragging ? '' : undefined}>
+    <div
+      className="app-shell"
+      data-dragging={paneDragging ? '' : undefined}
+      data-sidebar-collapsed={sidebarCollapsed ? '' : undefined}
+    >
       {/* TODO(mobile): 手机端的抽屉入口暂时关闭，后续单独设计手机交互 */}
-      <aside className="app-sidebar">{sidebar}</aside>
+      <CollapsibleSidebar
+        collapsed={sidebarCollapsed}
+        onToggle={(collapsed) => {
+          setSidebarCollapsed(collapsed)
+          window.localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0')
+        }}
+      >
+        {sidebar}
+      </CollapsibleSidebar>
 
       <div className="app-main" ref={stageRef}>
         {isTrack ? (

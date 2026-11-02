@@ -68,3 +68,75 @@ describe('FragmentView 分支锚点下划线', () => {
     expect(marks[0]?.textContent).toBe('根本区别')
   })
 })
+
+describe('FragmentView 锚点文字可点击打开分支', () => {
+  it('anchors 携带 nodeId 时，点击下划线文字回调该 nodeId', () => {
+    const opened: string[] = []
+    render(
+      <FragmentView
+        fragment={fragment}
+        anchors={[{ text: '利息本身也产生利息', nodeId: 'child-1' }]}
+        onOpenAnchor={(nodeId) => opened.push(nodeId)}
+      />,
+    )
+    const mark = container.querySelector('mark.anchor-underline') as HTMLElement
+    expect(mark).not.toBeNull()
+    act(() => {
+      mark.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(opened).toEqual(['child-1'])
+  })
+
+  it('点击非锚点区域不触发回调', () => {
+    const opened: string[] = []
+    render(
+      <FragmentView
+        fragment={fragment}
+        anchors={[{ text: '利息本身也产生利息', nodeId: 'child-1' }]}
+        onOpenAnchor={(nodeId) => opened.push(nodeId)}
+      />,
+    )
+    const plain = container.querySelector('.fragment') as HTMLElement
+    act(() => {
+      plain.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(opened).toEqual([])
+  })
+
+  it('文字锚定与点击回调解耦：没传 onOpenAnchor 时只有下划线、不报错', () => {
+    render(<FragmentView fragment={fragment} anchors={[{ text: '利息本身也产生利息', nodeId: 'child-1' }]} />)
+    const mark = container.querySelector('mark.anchor-underline') as HTMLElement
+    expect(mark).not.toBeNull()
+    act(() => {
+      mark.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  })
+
+  it('多个锚点各自携带自己的 nodeId', () => {
+    const opened: string[] = []
+    render(
+      <FragmentView
+        fragment={fragment}
+        anchors={[
+          { text: '利息本身也产生利息', nodeId: 'child-1' },
+          { text: '根本区别', nodeId: 'child-2' },
+        ]}
+        onOpenAnchor={(nodeId) => opened.push(nodeId)}
+      />,
+    )
+    const marks = container.querySelectorAll('mark.anchor-underline')
+    act(() => {
+      marks[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(opened).toEqual(['child-2'])
+  })
+
+  it('纯字符串 anchors 兼容旧行为：下划线照样画，点击不炸', () => {
+    render(<FragmentView fragment={fragment} anchors={['利息本身也产生利息']} />)
+    const mark = container.querySelector('mark.anchor-underline') as HTMLElement
+    expect(mark).not.toBeNull()
+    act(() => {
+      mark.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+  })
+})
