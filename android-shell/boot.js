@@ -36,11 +36,24 @@ function saveServer(server) {
   window.localStorage.setItem(VIBE_BOOT_STORAGE_KEY, server)
 }
 
+/**
+ * 启动页返回键判定（纯函数，供 shell 脚本与测试共用）：
+ * - 编辑区打开：回进入区（cancel-edit）。
+ * - 进入区倒计时进行中：取消自动进入，留在当前页（cancel-countdown）。
+ * - 进入区且无倒计时（用户已主动取消过）：退出应用（exit）。
+ */
+function resolveBootBack(state) {
+  if (state.editing) return 'cancel-edit'
+  if (state.autoCounting) return 'cancel-countdown'
+  return 'exit'
+}
+
 window.VibeBoot = {
   DEFAULT_SERVER,
   normalizeServerUrl,
   loadSavedServer,
   saveServer,
+  resolveBootBack,
   enterApp(server) {
     window.location.replace(server)
   },

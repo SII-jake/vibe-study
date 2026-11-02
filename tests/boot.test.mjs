@@ -62,3 +62,24 @@ describe('loadSavedServer / saveServer', () => {
     expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
   })
 })
+
+describe('resolveBootBack', () => {
+  it('编辑区打开时按返回：回进入区，不退出、不进入', () => {
+    expect(window.VibeBoot.resolveBootBack({ editing: true, autoCounting: false })).toBe(
+      'cancel-edit',
+    )
+    expect(window.VibeBoot.resolveBootBack({ editing: true, autoCounting: true })).toBe(
+      'cancel-edit',
+    )
+  })
+
+  it('进入区倒计时进行中按返回：取消自动进入，留在当前页', () => {
+    expect(window.VibeBoot.resolveBootBack({ editing: false, autoCounting: true })).toBe(
+      'cancel-countdown',
+    )
+  })
+
+  it('进入区且无倒计时（已手动取消过）：退出应用', () => {
+    expect(window.VibeBoot.resolveBootBack({ editing: false, autoCounting: false })).toBe('exit')
+  })
+})
