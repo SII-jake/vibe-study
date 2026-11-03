@@ -313,6 +313,21 @@ button {
   line-height: 1.45;
 }
 
+/*
+ * 追问（第二轮起的用户消息）：气泡形态与助手回答区分。
+ * 复用锚点引用块的视觉语言（左竖条 + 加强色浅底），
+ * 此前无样式 → 追问与回答在屏幕上完全连成一段（真机反馈）。
+ */
+.turn-user {
+  margin: 18px 0 12px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--accent-soft);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .fragment-block + .fragment-block {
   margin-top: 14px;
 }

@@ -220,6 +220,43 @@ async function main() {
   check('（手机视口）遮罩里选完会话自动收起遮罩', !afterPick.overlayOpen)
   check('（手机视口）选完会话停留在节点页', afterPick.hash.startsWith('#/n/'))
 
+  // 问题③：追问气泡与助手回答必须视觉区分（背景色不同为硬指标）。
+  // 提交追问时 front 端先把消息写进节点（.turn-user 气泡即时出现），
+  // 之后才走流式，因此可在不依赖模型回复的情况下断言样式。
+  await page.setViewport({ width: 700, height: 900 })
+  await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '1'))
+  const followOk = await page.evaluate(async () => {
+    const input = document.querySelector('.follow-input')
+    const send = document.querySelector('.follow-send')
+    if (!input || !send) return { ok: false }
+    // 触发 React 受控组件更新
+    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    nativeSet.call(input, '追问：给个例子')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return { ok: true }
+  })
+  check('（手机视口·消息格式）追问提交入口就位', followOk.ok)
+  await sleep(300)
+  await page.evaluate(() => document.querySelector('.follow-send')?.click())
+  await sleep(400)
+  const bubbleVisual = await page.evaluate(() => {
+    const bubble = document.querySelector('.turn-user')
+    const fragment = document.querySelector('.fragment')
+    if (!bubble || !fragment) return { bubble: !!bubble, fragment: !!fragment }
+    const bubbleBg = getComputedStyle(bubble).backgroundColor
+    const fragBg = getComputedStyle(fragment).backgroundColor
+    const bubbleRadius = parseFloat(getComputedStyle(bubble).borderTopRightRadius)
+    return { bubble: true, fragment: true, bubbleBg, fragBg, bubbleRadius }
+  })
+  check('（手机视口·消息格式）追问以对话气泡呈现', bubbleVisual.bubble === true)
+  check(
+    '（手机视口·消息格式）追问气泡带底色与圆角，与回答片段视觉分离',
+    bubbleVisual.bubble === true &&
+      bubbleVisual.fragBg !== bubbleVisual.bubbleBg &&
+      bubbleVisual.bubbleRadius > 0,
+    bubbleVisual.bubble === true ? `追问${bubbleVisual.bubbleBg}、回答${bubbleVisual.fragBg}` : '气泡不存在',
+  )
+
   // 还原桌面视口与展开偏好，继续桌面链路
   await page.setViewport({ width: 1400, height: 900 })
   await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '0'))
