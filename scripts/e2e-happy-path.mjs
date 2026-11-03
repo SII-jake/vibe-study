@@ -197,9 +197,17 @@ async function main() {
     const rectOf = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null
     const menu = rectOf('.page-reader [aria-label="会话列表"]')
     const main = rectOf('.app-main')
-    return { menuVisible: !!menu && menu.width > 0, mainW: main?.width ?? 0, vw: window.innerWidth }
+    return {
+      menuVisible: !!menu && menu.width > 0,
+      mainW: main?.width ?? 0,
+      vw: window.innerWidth,
+      rightPane: !!document.querySelector('.track-right'),
+      draftLane: !!document.querySelector('.track-empty'),
+    }
   })
   check('（手机视口）阅读页头部 ☰ 可见', mobileReader.menuVisible)
+  check('（手机视口）一次只展示一个对话：无桌面右栏', !mobileReader.rightPane)
+  check('（手机视口）一次只展示一个对话：无屏外起草位', !mobileReader.draftLane)
   check(
     '（手机视口）阅读区铺满视口宽，无按钮列偏移',
     Math.abs(mobileReader.mainW - mobileReader.vw) < 1,
@@ -219,6 +227,59 @@ async function main() {
   }))
   check('（手机视口）遮罩里选完会话自动收起遮罩', !afterPick.overlayOpen)
   check('（手机视口）选完会话停留在节点页', afterPick.hash.startsWith('#/n/'))
+
+  // 手机单对话主链路：点分支卡片整屏下潜进子对话（此前子对话落进
+  // 屏外右栏，点了像没反应）；返回上一级整屏回退。
+  await page.evaluate(() => document.querySelector('.ask-card')?.click())
+  await sleep(1200)
+  const mobileDive = await page.evaluate(() => ({
+    hash: location.hash,
+    rightPane: !!document.querySelector('.track-right'),
+    bodyW: document.querySelector('.app-main')?.getBoundingClientRect().width ?? 0,
+    vw: window.innerWidth,
+  }))
+  check(
+    '（手机视口）点分支卡片整屏导航进子对话',
+    mobileDive.hash.startsWith('#/n/') && mobileDive.hash !== '#/n/demo-root',
+    mobileDive.hash,
+  )
+  check('（手机视口）子对话页只有当前对话，无右栏', !mobileDive.rightPane)
+  check(
+    '（手机视口）子对话页铺满视口',
+    Math.abs(mobileDive.bodyW - mobileDive.vw) < 1,
+    `宽 ${Math.round(mobileDive.bodyW)} / 视口 ${mobileDive.vw}`,
+  )
+  await page.evaluate(() => document.querySelector('[aria-label="返回上一级"]')?.click())
+  await sleep(900)
+  check(
+    '（手机视口）返回上一级回到父对话',
+    (await page.evaluate(() => location.hash)) === '#/n/demo-root',
+  )
+
+  // 选中文字提问：手机端回退底部弹窗；桌面提案此前落进屏外起草位
+  // （AskPane），手机上根本看不到输入框。
+  await page.evaluate(() => {
+    const frag = document.querySelector('[data-fragment-index]')
+    const range = document.createRange()
+    range.selectNodeContents(frag)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await sleep(500)
+  check('（手机视口）选中正文出现「就这段提问」浮动按钮', await page.evaluate(() => !!document.querySelector('.ask-fab')))
+  await page.evaluate(() => document.querySelector('.ask-fab')?.click())
+  await sleep(500)
+  const mobileAsk = await page.evaluate(() => ({
+    sheet: !!document.querySelector('.sheet'),
+    askPane: !!document.querySelector('.ask-pane'),
+    rightPane: !!document.querySelector('.track-right'),
+  }))
+  check('（手机视口）点浮动按钮打开底部提问弹窗', mobileAsk.sheet)
+  check('（手机视口）提问不收进屏外起草位（无 AskPane/右栏）', !mobileAsk.askPane && !mobileAsk.rightPane)
+  await page.evaluate(() => document.querySelector('.sheet-backdrop')?.click())
+  await sleep(400)
 
   // 还原桌面视口与展开偏好，继续桌面链路
   await page.setViewport({ width: 1400, height: 900 })

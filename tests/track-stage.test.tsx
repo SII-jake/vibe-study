@@ -6,7 +6,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TrackStage } from '../src/ui/track-stage'
-import { computeTrack } from '../src/app/track-view'
+import { computeTrack, routeTrack } from '../src/app/track-view'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -97,7 +97,7 @@ describe('TrackStage', () => {
   it('单栏模式（窄视口）：每格铺满视口、一眼只看一栏，位移按视口宽整格推进', () => {
     render(
       <TrackStage
-        lanes={computeTrack(['root', 'a1'], 'b1')}
+        lanes={routeTrack(['root', 'a1'])}
         centerWidth={400}
         viewportWidth={700}
         singlePane
@@ -105,16 +105,16 @@ describe('TrackStage', () => {
       />,
     )
     const lanes = [...container.querySelectorAll<HTMLElement>('.track-lane')]
-    // 无视口内分栏：中栏、右栏各自独占一屏
+    // 无视口内分栏：每格独占一屏
     expect(lanes.every((lane) => lane.style.width === '700px')).toBe(true)
-    // 视口框住末两格：只剩「中栏 | 右栏」各一屏，祖先格被推出视口左缘
+    // 视口钉在末格（当前对话 a1），父级 root 留在屏外供回退位移
     expect(trackEl().style.transform).toBe('translateX(-700px)')
   })
 
-  it('单栏模式下再下潜一代：仍以一整屏为步长推进', () => {
+  it('单栏模式下再下潜一代：仍以一整屏为步长推进到当前对话', () => {
     render(
       <TrackStage
-        lanes={computeTrack(['root'], 'a1')}
+        lanes={routeTrack(['root'])}
         centerWidth={400}
         viewportWidth={700}
         singlePane
@@ -124,7 +124,7 @@ describe('TrackStage', () => {
     expect(trackEl().style.transform).toBe('translateX(0px)')
     render(
       <TrackStage
-        lanes={computeTrack(['root', 'a1'], 'b1')}
+        lanes={routeTrack(['root', 'a1'])}
         centerWidth={400}
         viewportWidth={700}
         singlePane

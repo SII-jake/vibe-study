@@ -38,6 +38,18 @@ export function computeTrack(centerPath: string[], rightNodeId: string | null): 
 }
 
 /**
+ * 窄屏轨道：只放路由链上的对话（当前节点 + 它的祖先），不收右栏。
+ * 手机屏小、一次只展示一个对话 —— 点分支整屏导航、返回键回退，
+ * 祖先格留在屏外供位移动画；同一关系标注与 computeTrack 保持同源。
+ */
+export function routeTrack(centerPath: string[]): Lane[] {
+  return centerPath.map((id, index) => ({
+    nodeId: id,
+    relation: index === 0 ? 'root' : 'child',
+  }))
+}
+
+/**
  * 视口左边界（中栏）在轨道上的索引。
  * 由轨道长度直接推导，不另存状态：视口恒贴轨道末端。
  */
@@ -62,5 +74,15 @@ export function rightLane(lanes: Lane[]): Lane | null {
 export function trackOffset(lanes: Lane[], laneWidth: number): number {
   const offset = -centerIndex(lanes) * laneWidth
   // Object.is 区分 -0 / +0，最左端不能把 -0 露给 CSS
+  return offset === 0 ? 0 : offset
+}
+
+/**
+ * 单栏（窄视口）平移量（px）：视口钉在轨道末格 —— 末格即路由上的当前对话。
+ * 窄屏轨道由 routeTrack 生成、不含右栏，因此每深入一代，
+ * 视口按一整屏左推进到新的当前对话；与桌面 trackOffset 的窗口语义不同。
+ */
+export function singlePaneOffset(lanes: Lane[], laneWidth: number): number {
+  const offset = -Math.max(0, lanes.length - 1) * laneWidth
   return offset === 0 ? 0 : offset
 }

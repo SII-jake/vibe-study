@@ -14,7 +14,7 @@ import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
 import { rememberFocus } from '../ui/view-memory'
-import { centerIndex, computeTrack } from './track-view'
+import { centerIndex, computeTrack, routeTrack } from './track-view'
 import { useBackButton } from './use-back-button'
 import {
   type PaneSide,
@@ -48,7 +48,9 @@ interface DiveIntent {
  * - 从右栏发起：当前右栏本身就是父级，于是它立刻升入中栏，右栏让给新问答
  * 提交后新节点落到右栏，继续可读、可继续追问。
  *
- * TODO(mobile): 手机端交互暂关闭，后续单独设计。当前只按桌面三栏布局工作。
+ * 手机（窄视口）屏小，一次只展示一个对话：轨道只放路由链上的对话，
+ * 点分支整屏导航、返回键回退；选中提问回退到底部弹窗（NodePage 内
+ * 未传 onRequestAsk 时的既有形态），不放桌面的右栏与起草位。
  */
 export function App() {
   const data = useLearnData()
@@ -241,7 +243,9 @@ export function App() {
   const centerPath = isTrack
     ? breadcrumb(data.nodes, route.nodeId).map((item) => item.id)
     : []
-  const lanes = computeTrack(centerPath, rightNodeId)
+  // 窄屏一次只看一个对话：轨道只放路由链；桌面才带右栏/起草位。
+  // 一旦窄屏混入右栏占位，轨道会出现用户滑不过去的屏外格。
+  const lanes = isNarrow ? routeTrack(centerPath) : computeTrack(centerPath, rightNodeId)
   const centerIdx = centerIndex(lanes)
   const lastIdx = lanes.length - 1
 
@@ -292,8 +296,10 @@ export function App() {
               viewportWidth={viewportWidth}
               singlePane={isNarrow}
               renderLane={(lane, index) => {
-                const isCenter = index === centerIdx
-                const isRight = index === lastIdx
+                // 窄屏没有中右分栏：每格都是整页主格（页头与追问条都要在），
+                // 也永远不进「右栏桌面条」分支
+                const isCenter = isNarrow || index === centerIdx
+                const isRight = !isNarrow && index === lastIdx
 
                 if (lane.nodeId === null) {
                   return pendingAsk ? (
@@ -316,17 +322,31 @@ export function App() {
                     onNavigate={openNode}
                     onOpenMenu={openSidebar}
                     onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
-                    onRequestAsk={(reading) =>
-                      beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
+                    // 窄屏不传 onRequestAsk：NodePage 回退到底部弹窗提问，
+                    // 提问内容不再落到屏外起草位
+                    onRequestAsk={
+                      isNarrow
+                        ? undefined
+                        : (reading) => beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
                     }
-                    onOpenBranch={(id) => placeChild(id, isCenter ? 'main' : 'right')}
-                    onGoBack={(parentId) => {
+                    // 窄屏不传 onOpenBranch：点分支回退 onNavigate 整屏导航，
+                    // 子对话不再躲进屏外右栏
+                    onOpenBranch={
+                      isNarrow
+                        ? undefined
+                        : (id) => placeChild(id, isCenter ? 'main' : 'right')
+                    }
+                    // 窄屏不传 onGoBack：返回退到 onNavigate 走 hash 路由，
+                    // 系统返回键/浏览器后退天然回退，不再往屏外右栏塞刚读的对话
+                    onGoBack={
+                      isNarrow ? undefined : (parentId) => {
                       // 返回 = 视口左移一格：刚读的对话留在右栏，不清空
                       const next = planGoBack({ centerNodeId, rightNodeId }, parentId)
                       if (next.centerNodeId) {
                         diveTo(next.centerNodeId, next.rightNodeId, null)
                       }
-                    }}
+                    }
+                    }
                     compact={!isCenter}
                   />
                 )
