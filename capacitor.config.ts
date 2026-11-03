@@ -18,6 +18,14 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
   },
+  plugins: {
+    StatusBar: {
+      // WebView 不覆盖状态栏（配合 MainActivity.setDecorFitsSystemWindows）。
+      // 否则 Android 15+ 强制 edge-to-edge 下「＋新会话」会与系统状态栏重叠。
+      overlaysWebView: false,
+      style: 'DARK',
+    },
+  },
 }
 
 export default config

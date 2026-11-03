@@ -17,6 +17,7 @@ import android.view.ActionMode;
 import android.webkit.JavascriptInterface;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -33,6 +34,15 @@ public class MainActivity extends BridgeActivity {
 
     /** 页面回写：当前焦点是否在可编辑元素（输入框/文本域/contenteditable） */
     private volatile boolean editableFocused = false;
+
+    @Override
+    public void onCreate(android.os.Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Android 15+ 强制 edge-to-edge：内容被画到系统状态栏后面，
+        // 「＋新会话」与电量图标重叠（真机反馈）。decor 适配系统窗口即可
+        // 回到「WebView 在状态栏之下」的布局；CSS 的 safe-top 兜底挖空场景。
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+    }
 
     @Override
     public void onResume() {
