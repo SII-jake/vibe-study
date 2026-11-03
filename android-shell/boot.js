@@ -1,7 +1,7 @@
 /** 启动页逻辑：纯浏览器实现，不依赖 Capacitor API，file:// 下即可运行（也便于测试）。 */
 
 const VIBE_BOOT_STORAGE_KEY = 'vibe-study.server-url'
-const DEFAULT_SERVER = 'https://study.sii.edu.cn'
+const DEFAULT_SERVER = 'https://digital-gene.sii.edu.cn'
 
 /** 把用户输入归一成服务器源地址；无法识别的输入返回 null。 */
 function normalizeServerUrl(input) {
@@ -36,11 +36,24 @@ function saveServer(server) {
   window.localStorage.setItem(VIBE_BOOT_STORAGE_KEY, server)
 }
 
+/**
+ * 启动页返回键判定（纯函数，供 shell 脚本与测试共用）：
+ * - 编辑区打开：回进入区（cancel-edit）。
+ * - 进入区倒计时进行中：取消自动进入，留在当前页（cancel-countdown）。
+ * - 进入区且无倒计时（用户已主动取消过）：退出应用（exit）。
+ */
+function resolveBootBack(state) {
+  if (state.editing) return 'cancel-edit'
+  if (state.autoCounting) return 'cancel-countdown'
+  return 'exit'
+}
+
 window.VibeBoot = {
   DEFAULT_SERVER,
   normalizeServerUrl,
   loadSavedServer,
   saveServer,
+  resolveBootBack,
   enterApp(server) {
     window.location.replace(server)
   },

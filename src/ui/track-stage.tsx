@@ -8,6 +8,8 @@ export interface TrackStageProps {
   centerWidth: number
   /** 视口总宽度；末格吃掉剩下的部分 */
   viewportWidth: number
+  /** 单栏模式（窄视口）：每格铺满视口、视口一次只框住一栏，位移按整屏推进 */
+  singlePane?: boolean
   renderLane(lane: Lane, index: number): ReactNode
 }
 
@@ -22,12 +24,14 @@ export function TrackStage({
   lanes,
   centerWidth,
   viewportWidth,
+  singlePane = false,
   renderLane,
 }: TrackStageProps) {
   const lastIndex = lanes.length - 1
-  // 末格（右栏）吃掉中栏之外的剩余视口
-  const rightWidth = Math.max(0, viewportWidth - centerWidth)
-  const offset = trackOffset(lanes, centerWidth)
+  // 单栏：各格与视口同宽，双栏：末格（右栏）吃掉中栏之外的剩余视口
+  const laneWidth = (index: number) =>
+    singlePane ? viewportWidth : index === lastIndex ? Math.max(0, viewportWidth - centerWidth) : centerWidth
+  const offset = trackOffset(lanes, singlePane ? viewportWidth : centerWidth)
 
   return (
     <div className="track-stage">
@@ -39,7 +43,7 @@ export function TrackStage({
           <div
             key={`${lane.nodeId ?? 'draft'}-${index}`}
             className={`track-lane${index === lastIndex ? ' track-lane-right' : ''}`}
-            style={{ width: `${index === lastIndex ? rightWidth : centerWidth}px` }}
+            style={{ width: `${laneWidth(index)}px` }}
           >
             {renderLane(lane, index)}
           </div>

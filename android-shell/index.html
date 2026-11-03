@@ -75,7 +75,7 @@
       <div class="server" id="serverText"></div>
       <button id="enterBtn">进入</button>
       <button class="ghost" id="editBtn">修改服务器地址</button>
-      <p class="hint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
+      <p class="hint" id="autoHint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
     </div>
 
     <div class="card" id="editArea">
@@ -118,8 +118,34 @@
         }
       }
 
-      byId('enterBtn').addEventListener('click', function () {
+      /** 取消自动进入并收走倒计时提示：用户已主动选择留在此页。 */
+      function cancelAuto() {
         stopAuto()
+        byId('autoHint').style.display = 'none'
+      }
+
+      /* Android 返回键：仅在系统壳内接线。编辑区返回 → 回进入区；
+         进入区倒计时中返回 → 取消自动进入只剩手动进入；否则退出应用。 */
+      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+        window.Capacitor.Plugins.App.addListener('backButton', function () {
+          var action = window.VibeBoot.resolveBootBack({
+            editing: byId('editArea').style.display === 'block',
+            autoCounting: autoTimer !== null,
+          })
+          if (action === 'cancel-edit') {
+            showEnter(window.VibeBoot.loadSavedServer())
+            return
+          }
+          if (action === 'cancel-countdown') {
+            cancelAuto()
+            return
+          }
+          window.Capacitor.Plugins.App.exitApp()
+        })
+      }
+
+      byId('enterBtn').addEventListener('click', function () {
+        cancelAuto()
         window.VibeBoot.enterApp(window.VibeBoot.loadSavedServer())
       })
 

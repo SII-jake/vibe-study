@@ -107,55 +107,60 @@ async function main() {
     collapsePos ? `距侧栏顶 ${Math.round(collapsePos.relTop)}px` : '不存在',
   )
 
-  // 窄视口（700px）：React 状态必须主导收展——展开态下侧栏与收起按钮
-  // 都要真的活着；折叠后展开按钮仍在。历史教训：旧移动端规则
-  // `display:none` 曾瞒着 collapsed=false 把侧栏藏死、连收展入口都不留。
+  // 窄视口（700px，手机）：44px 按钮列退场、主区全宽居中；侧栏改由
+  // 页面头部 ☰ 以遮罩形态开合（悬浮展开按钮在手机端隐藏，避免压住
+  // 阅读页头部左侧的「返回上一级」按钮）。
   await page.setViewport({ width: 700, height: 900 })
-  await page.evaluate(() => localStorage.setItem('sidebar-collapsed', '0'))
+  await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '1'))
   await page.reload({ waitUntil: 'networkidle0' })
   await sleep(1200)
-  const narrow = await page.evaluate(() => {
-    const r = (sel) => {
-      const el = document.querySelector(sel)
-      const rect = el?.getBoundingClientRect()
-      return rect ? { w: rect.width, h: rect.height, inView: rect.width > 0 && rect.bottom <= innerHeight } : null
-    }
+  const mobileHome = await page.evaluate(() => {
+    const rectOf = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null
+    const main = rectOf('.app-main')
+    const expand = rectOf('.sidebar-expand-btn')
+    const menu = rectOf('[aria-label="会话列表"]')
     return {
-      sidebar: r('.app-sidebar'),
-      collapseBtn: r('[aria-label="收起左侧栏"]'),
+      vw: window.innerWidth,
+      mainX: main?.x ?? -1,
+      mainW: main?.width ?? 0,
+      expandVisible: !!expand && expand.width > 0 && expand.height > 0,
+      menuVisible: !!menu && menu.width > 0 && menu.height > 0,
     }
   })
-  check('（窄视口 700px）展开态侧栏真实可见', narrow.sidebar !== null && narrow.sidebar.w > 0, narrow.sidebar ? `宽 ${Math.round(narrow.sidebar.w)}px` : '不存在')
   check(
-    '（窄视口 700px）收起按钮真实可见且在视口内',
-    narrow.collapseBtn !== null && narrow.collapseBtn.inView,
-    narrow.collapseBtn ? `${Math.round(narrow.collapseBtn.w)}×${Math.round(narrow.collapseBtn.h)}` : '不存在',
+    '（手机视口）收起态主区占满全宽，不被按钮列挤偏',
+    Math.abs(mobileHome.mainX) < 1 && Math.abs(mobileHome.mainW - mobileHome.vw) < 1,
+    `x=${Math.round(mobileHome.mainX)} 宽 ${Math.round(mobileHome.mainW)} / 视口 ${mobileHome.vw}`,
   )
-  // 窄视口折叠/展开往返
+  check('（手机视口）悬浮展开按钮不出现（避免压住页面头部控件）', !mobileHome.expandVisible)
+  check('（手机视口）页面头部 ☰ 按钮可见，作为侧栏入口', mobileHome.menuVisible)
+
+  // ☰ 拉开遮罩侧栏；收起按钮仍在遮罩顶部
+  await page.evaluate(() => document.querySelector('[aria-label="会话列表"]')?.click())
+  await sleep(600)
+  const mobileOverlay = await page.evaluate(() => ({
+    overlay: !!document.querySelector('.app-sidebar')?.getBoundingClientRect().width,
+    collapseVisible: !!document.querySelector('[aria-label="收起左侧栏"]')?.getBoundingClientRect().width,
+  }))
+  check('（手机视口）点 ☰ 后侧栏遮罩展开', mobileOverlay.overlay)
+  check('（手机视口）遮罩上收起入口恒在', mobileOverlay.collapseVisible)
+
+  // 收起后主区恢复全宽
   await page.evaluate(() => document.querySelector('[aria-label="收起左侧栏"]')?.click())
   await sleep(600)
-  const narrowCollapsed = await page.evaluate(() => ({
-    expandBtn: !!document.querySelector('.sidebar-expand-btn'),
-    // DOMRect 不可序列化（属性在原型上），在页面内取原始数值再传出；
-    // innerHeight 同样是浏览器全局，必须在页面内取
-    expandWidth: document.querySelector('.sidebar-expand-btn')?.getBoundingClientRect().width ?? 0,
-    expandBottom: document.querySelector('.sidebar-expand-btn')?.getBoundingClientRect().bottom ?? 0,
-    viewportH: window.innerHeight,
-  }))
+  const mobileRestored = await page.evaluate(() => {
+    const main = document.querySelector('.app-main')?.getBoundingClientRect()
+    return { vw: window.innerWidth, mainX: main?.x ?? -1, mainW: main?.width ?? 0 }
+  })
   check(
-    '（窄视口 700px）折叠后展开按钮留在视口内',
-    narrowCollapsed.expandBtn && narrowCollapsed.expandWidth > 0 && narrowCollapsed.expandBottom <= narrowCollapsed.viewportH,
-    `bottom ${Math.round(narrowCollapsed.expandBottom)} / 视口 ${narrowCollapsed.viewportH}`,
+    '（手机视口）收起侧栏后主区恢复全宽',
+    Math.abs(mobileRestored.mainX) < 1 && Math.abs(mobileRestored.mainW - mobileRestored.vw) < 1,
+    `x=${Math.round(mobileRestored.mainX)} 宽 ${Math.round(mobileRestored.mainW)}`,
   )
-  await page.evaluate(() => document.querySelector('.sidebar-expand-btn')?.click())
-  await sleep(600)
-  const narrowBack = await page.evaluate(() => ({
-    sidebar: !!document.querySelector('.app-sidebar'),
-    collapseBtn: !!document.querySelector('[aria-label="收起左侧栏"]'),
-  }))
-  check('（窄视口 700px）展开恢复后收展入口恒在', narrowBack.sidebar && narrowBack.collapseBtn)
+
   // 还原为桌面视口与展开态，再继续后续链路
   await page.setViewport({ width: 1400, height: 900 })
+  await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '0'))
   await page.reload({ waitUntil: 'networkidle0' })
   await sleep(1200)
 
@@ -183,6 +188,80 @@ async function main() {
   check('正文按片段渲染', node.fragments > 0, `${node.fragments} 个片段`)
   check('选中过的锚点原文带分支标记（含 nodeId）', node.anchors.length > 0, `${node.anchors.length} 个`)
   check('锚点下有分支卡片', node.cards > 0, `${node.cards} 张`)
+
+  // 手机视口下的阅读页：☰ 在头部就位、阅读区贴视口左缘；遮罩里选会话
+  // 后自动收起遮罩、回到正文不再遮挡。
+  await page.setViewport({ width: 700, height: 900 })
+  await sleep(600)
+  const mobileReader = await page.evaluate(() => {
+    const rectOf = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null
+    const menu = rectOf('.page-reader [aria-label="会话列表"]')
+    const main = rectOf('.app-main')
+    return { menuVisible: !!menu && menu.width > 0, mainW: main?.width ?? 0, vw: window.innerWidth }
+  })
+  check('（手机视口）阅读页头部 ☰ 可见', mobileReader.menuVisible)
+  check(
+    '（手机视口）阅读区铺满视口宽，无按钮列偏移',
+    Math.abs(mobileReader.mainW - mobileReader.vw) < 1,
+    `宽 ${Math.round(mobileReader.mainW)} / 视口 ${mobileReader.vw}`,
+  )
+  await page.evaluate(() => document.querySelector('.page-reader [aria-label="会话列表"]')?.click())
+  await sleep(600)
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll('.app-sidebar a, .app-sidebar button')]
+      .find((x) => x.textContent.includes('复利是什么'))
+      ?.click()
+  })
+  await sleep(1200)
+  const afterPick = await page.evaluate(() => ({
+    overlayOpen: !!document.querySelector('.app-sidebar'),
+    hash: location.hash,
+  }))
+  check('（手机视口）遮罩里选完会话自动收起遮罩', !afterPick.overlayOpen)
+  check('（手机视口）选完会话停留在节点页', afterPick.hash.startsWith('#/n/'))
+
+  // 问题③：追问气泡与助手回答必须视觉区分（背景色不同为硬指标）。
+  // 提交追问时 front 端先把消息写进节点（.turn-user 气泡即时出现），
+  // 之后才走流式，因此可在不依赖模型回复的情况下断言样式。
+  await page.setViewport({ width: 700, height: 900 })
+  await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '1'))
+  const followOk = await page.evaluate(async () => {
+    const input = document.querySelector('.follow-input')
+    const send = document.querySelector('.follow-send')
+    if (!input || !send) return { ok: false }
+    // 触发 React 受控组件更新
+    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    nativeSet.call(input, '追问：给个例子')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return { ok: true }
+  })
+  check('（手机视口·消息格式）追问提交入口就位', followOk.ok)
+  await sleep(300)
+  await page.evaluate(() => document.querySelector('.follow-send')?.click())
+  await sleep(400)
+  const bubbleVisual = await page.evaluate(() => {
+    const bubble = document.querySelector('.turn-user')
+    const fragment = document.querySelector('.fragment')
+    if (!bubble || !fragment) return { bubble: !!bubble, fragment: !!fragment }
+    const bubbleBg = getComputedStyle(bubble).backgroundColor
+    const fragBg = getComputedStyle(fragment).backgroundColor
+    const bubbleRadius = parseFloat(getComputedStyle(bubble).borderTopRightRadius)
+    return { bubble: true, fragment: true, bubbleBg, fragBg, bubbleRadius }
+  })
+  check('（手机视口·消息格式）追问以对话气泡呈现', bubbleVisual.bubble === true)
+  check(
+    '（手机视口·消息格式）追问气泡带底色与圆角，与回答片段视觉分离',
+    bubbleVisual.bubble === true &&
+      bubbleVisual.fragBg !== bubbleVisual.bubbleBg &&
+      bubbleVisual.bubbleRadius > 0,
+    bubbleVisual.bubble === true ? `追问${bubbleVisual.bubbleBg}、回答${bubbleVisual.fragBg}` : '气泡不存在',
+  )
+
+  // 还原桌面视口与展开偏好，继续桌面链路
+  await page.setViewport({ width: 1400, height: 900 })
+  await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '0'))
+  await page.reload({ waitUntil: 'networkidle0' })
+  await sleep(1500)
 
   // 点锚点文字：与点分支卡片同效，右栏展开子对话
   const target = node.anchors[0]

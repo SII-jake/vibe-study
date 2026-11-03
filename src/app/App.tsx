@@ -9,10 +9,13 @@ import { TrackStage } from '../ui/track-stage'
 import { TreePage } from '../ui/TreePage'
 import { toAskInput } from '../ui/ask-target'
 import { useElementWidth } from '../ui/use-element-width'
+import { useMediaQuery } from '../ui/use-media-query'
 import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
+import { rememberFocus } from '../ui/view-memory'
 import { centerIndex, computeTrack } from './track-view'
+import { useBackButton } from './use-back-button'
 import {
   type PaneSide,
   type PaneView,
@@ -59,6 +62,9 @@ export function App() {
   )
   /** 中心和右栏要一起变，用它告诉 route 副作用这次别清空右栏 */
   const diveRef = useRef<DiveIntent | null>(null)
+  /** 退出提示：root 页首次按返回时拉起，再按一次退出 */
+  const [exitPrompt, setExitPrompt] = useState(false)
+  const exitPromptTimer = useRef<number | null>(null)
   /** 中栏宽度：分隔条向右拖变宽，右栏同时让出 */
   const [paneWidth, paneDragging, startPaneDrag] = usePaneWidth({
     initial: 640,
@@ -68,6 +74,8 @@ export function App() {
   })
   /** 轨道舞台的实际像素宽，用于把两格铺满视口 */
   const [stageRef, viewportWidth] = useElementWidth<HTMLDivElement>()
+  /** 窄视口（手机）：主区全宽、轨道单栏、侧栏遮罩开合 */
+  const isNarrow = useMediaQuery('(max-width: 767px)')
 
   useEffect(() => {
     const handler = () => setRoute(parseRoute(window.location.hash))
@@ -98,9 +106,20 @@ export function App() {
       // 用户手动切换对话：右栏没有需要保留的子对话
       diveRef.current = null
       navigate({ kind: 'node', nodeId })
+      // 窄屏：遮罩里选完会话自动收起遮罩，回到正文；桌面保持侧栏展开不动
+      if (isNarrow) {
+        setSidebarCollapsed(true)
+        window.localStorage.setItem('sidebar-collapsed', '1')
+      }
     },
-    [navigate],
+    [navigate, isNarrow],
   )
+
+  /** 窄屏头部 ☰：把侧栏以遮罩形态拉开 */
+  const openSidebar = useCallback(() => {
+    setSidebarCollapsed(false)
+    window.localStorage.setItem('sidebar-collapsed', '0')
+  }, [])
 
   // 换节点/换页面时收起右栏，避免问题挂到别的节点上；下潜时则按预定安排还原右栏。
   // 这里不消费 diveRef，StrictMode 下重复执行也得到同一结果。
@@ -127,6 +146,43 @@ export function App() {
   )
 
   const centerNodeId = route.kind === 'node' ? route.nodeId : null
+
+  /** 硬件返回键：与页面内「返回上一级」同口径，落到路由回到上一层。 */
+  const goBackRoute = useCallback(() => {
+    if (route.kind === 'node') {
+      const node = data.nodes.find((item) => item.id === route.nodeId)
+      if (node?.parentId) {
+        // 与 NodePage 内 goBack 一致：记下锚点现场，视口左移到父级（留在右栏）
+        if (node.anchor) rememberFocus(node.parentId, node.anchor)
+        const next = planGoBack({ centerNodeId, rightNodeId }, node.parentId)
+        diveTo(next.centerNodeId ?? node.parentId, next.rightNodeId, null)
+        return
+      }
+      navigate({ kind: 'topics' })
+      return
+    }
+    if (route.kind === 'tree') {
+      navigate({ kind: 'node', nodeId: route.nodeId })
+      return
+    }
+    if (route.kind === 'settings') {
+      const rootId =
+        (centerNodeId ? breadcrumb(data.nodes, centerNodeId)[0]?.id : undefined) ??
+        data.nodes[0]?.id ??
+        null
+      navigate(rootId ? { kind: 'node', nodeId: rootId } : { kind: 'topics' })
+      return
+    }
+    navigate({ kind: 'topics' })
+  }, [route, data.nodes, centerNodeId, rightNodeId, navigate, diveTo])
+
+  const showExitPrompt = useCallback(() => {
+    setExitPrompt(true)
+    if (exitPromptTimer.current !== null) window.clearTimeout(exitPromptTimer.current)
+    exitPromptTimer.current = window.setTimeout(() => setExitPrompt(false), 2000)
+  }, [])
+
+  useBackButton({ route, goBack: goBackRoute, showExitPrompt })
 
   /** 子对话落位的唯一入口：中栏发起只进右栏，右栏发起则先下潜。 */
   const placeChild = useCallback(
@@ -220,18 +276,21 @@ export function App() {
         {isTrack ? (
           <>
             {/* 分隔条固定在中栏右边缘；轨道本身只整体平移，不单独动任何一格 */}
-            <div
-              className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
-              style={{ left: `${paneWidth}px` }}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整中栏宽度"
-              onPointerDown={startPaneDrag}
-            />
+            {!isNarrow && (
+              <div
+                className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
+                style={{ left: `${paneWidth}px` }}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整中栏宽度"
+                onPointerDown={startPaneDrag}
+              />
+            )}
             <TrackStage
               lanes={lanes}
               centerWidth={paneWidth}
               viewportWidth={viewportWidth}
+              singlePane={isNarrow}
               renderLane={(lane, index) => {
                 const isCenter = index === centerIdx
                 const isRight = index === lastIdx
@@ -255,6 +314,7 @@ export function App() {
                     data={data}
                     nodeId={lane.nodeId}
                     onNavigate={openNode}
+                    onOpenMenu={openSidebar}
                     onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
                     onRequestAsk={(reading) =>
                       beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
@@ -314,7 +374,9 @@ export function App() {
           </>
         ) : (
           <>
-            {route.kind === 'topics' && <StartPage data={data} onCreated={openNode} />}
+            {route.kind === 'topics' && (
+              <StartPage data={data} onCreated={openNode} onOpenMenu={openSidebar} />
+            )}
 
             {route.kind === 'tree' && (
               <TreePage
@@ -343,6 +405,12 @@ export function App() {
       {data.error && (
         <div className="toast" role="alert" onClick={data.clearError}>
           {data.error}
+        </div>
+      )}
+
+      {exitPrompt && !data.error && (
+        <div className="toast" role="status">
+          再按一次返回退出
         </div>
       )}
     </div>

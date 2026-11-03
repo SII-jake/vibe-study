@@ -93,4 +93,44 @@ describe('TrackStage', () => {
     expect(last.style.width).toBe('450px')
     expect(trackEl().style.transform).toBe('translateX(-550px)')
   })
+
+  it('单栏模式（窄视口）：每格铺满视口、一眼只看一栏，位移按视口宽整格推进', () => {
+    render(
+      <TrackStage
+        lanes={computeTrack(['root', 'a1'], 'b1')}
+        centerWidth={400}
+        viewportWidth={700}
+        singlePane
+        renderLane={(lane) => <span className="lane-body">{laneLabel(lane.nodeId)}</span>}
+      />,
+    )
+    const lanes = [...container.querySelectorAll<HTMLElement>('.track-lane')]
+    // 无视口内分栏：中栏、右栏各自独占一屏
+    expect(lanes.every((lane) => lane.style.width === '700px')).toBe(true)
+    // 视口框住末两格：只剩「中栏 | 右栏」各一屏，祖先格被推出视口左缘
+    expect(trackEl().style.transform).toBe('translateX(-700px)')
+  })
+
+  it('单栏模式下再下潜一代：仍以一整屏为步长推进', () => {
+    render(
+      <TrackStage
+        lanes={computeTrack(['root'], 'a1')}
+        centerWidth={400}
+        viewportWidth={700}
+        singlePane
+        renderLane={(lane) => <span className="lane-body">{laneLabel(lane.nodeId)}</span>}
+      />,
+    )
+    expect(trackEl().style.transform).toBe('translateX(0px)')
+    render(
+      <TrackStage
+        lanes={computeTrack(['root', 'a1'], 'b1')}
+        centerWidth={400}
+        viewportWidth={700}
+        singlePane
+        renderLane={(lane) => <span className="lane-body">{laneLabel(lane.nodeId)}</span>}
+      />,
+    )
+    expect(trackEl().style.transform).toBe('translateX(-700px)')
+  })
 })

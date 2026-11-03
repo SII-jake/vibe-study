@@ -703,6 +703,31 @@ describe('runAgentTurn', () => {
     expect(deltas).toEqual(['完整', '答案'])
   })
 
+  it('系统提示词分条换行（不压成一坨），「给出链接就别再搜」的规则放在最前', async () => {
+    // 真机反馈：贴链接读原文也触发了搜索。提示词被 join('') 压成一段、
+    // URL 免搜规则排在「时效性要求高」之后被稀释。断言结构：
+    // ① 发给 LLM 的 system 提示词含换行分条；
+    // ② URL 免搜规则的位置早于「时效信息先搜」类一般性引导。
+    const fetchImpl = vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        return jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '答' } }] })
+      }
+      throw new Error(`未知请求 ${urlStr}`)
+    })
+    await runAgentTurn(agentConfig, [{ role: 'user', content: 'q' }], fetchImpl, () => {})
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body)
+    const system = body.messages.find((m) => m.role === 'system').content
+
+    expect(system.startsWith('1.')).toBe(true)
+    expect(system).toContain('\n2.')
+    const urlRule = system.indexOf('不要用 search')
+    const searchRule = system.indexOf('时效')
+    expect(urlRule).toBeGreaterThanOrEqual(0)
+    expect(searchRule).toBeGreaterThanOrEqual(0)
+    expect(urlRule).toBeLessThan(searchRule)
+  })
+
   // 默认超时值属于配置层约定，不由 agent 决定在测试里；
   // config 解析的用例见 tests/server.test.mjs
 })

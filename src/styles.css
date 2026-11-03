@@ -313,6 +313,21 @@ button {
   line-height: 1.45;
 }
 
+/*
+ * 追问（第二轮起的用户消息）：气泡形态与助手回答区分。
+ * 复用锚点引用块的视觉语言（左竖条 + 加强色浅底），
+ * 此前无样式 → 追问与回答在屏幕上完全连成一段（真机反馈）。
+ */
+.turn-user {
+  margin: 18px 0 12px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--accent-soft);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .fragment-block + .fragment-block {
   margin-top: 14px;
 }
@@ -1120,6 +1135,37 @@ body:has([data-dragging]) {
 }
 
 @media (max-width: 767px) {
+  /*
+   * 手机端布局收敛：
+   * - 壳恒为单列，主区占满全宽，内容不再被 44px 按钮列挤偏；
+   *   app-main 桌面端钉在 grid-column:2，这里必须解除，单列下归位。
+   * - 收起态改由页面头部 ☰ 进侧栏，按钮列与悬浮展开按钮一并退场
+   *   （悬浮按钮在窄屏上会压住阅读页头部左侧的「返回上一级」）。
+   * - 展开态侧栏脱离网格、以遮罩形态盖在主区上，宽度按视口折让。
+   */
+  .app-shell,
+  .app-shell[data-sidebar-collapsed] {
+    grid-template-columns: 1fr;
+  }
+
+  .app-main {
+    grid-column: 1;
+  }
+
+  .sidebar-expand-btn {
+    display: none;
+  }
+
+  .app-shell:not([data-sidebar-collapsed]) .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 70;
+    width: min(320px, 84vw);
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+  }
+
   .menu-btn {
     display: flex;
   }
