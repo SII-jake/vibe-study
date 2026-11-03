@@ -1,11 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
+import { installSelectionGuard } from './ui/selection-guard'
 import { cleanupStaleServiceWorkers } from './sw-cleanup'
 import './styles.css'
 
 const container = document.getElementById('root')
 if (!container) throw new Error('缺少根节点')
+
+// Android 壳：把「焦点是否在可编辑元素」同步给原生，正文区屏蔽系统选择菜单
+installSelectionGuard()
 
 createRoot(container).render(
   <StrictMode>

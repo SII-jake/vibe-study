@@ -9,6 +9,7 @@ import { TrackStage } from '../ui/track-stage'
 import { TreePage } from '../ui/TreePage'
 import { toAskInput } from '../ui/ask-target'
 import { useElementWidth } from '../ui/use-element-width'
+import { useMediaQuery } from '../ui/use-media-query'
 import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
@@ -73,6 +74,8 @@ export function App() {
   })
   /** 轨道舞台的实际像素宽，用于把两格铺满视口 */
   const [stageRef, viewportWidth] = useElementWidth<HTMLDivElement>()
+  /** 窄视口（手机）：主区全宽、轨道单栏、侧栏遮罩开合 */
+  const isNarrow = useMediaQuery('(max-width: 767px)')
 
   useEffect(() => {
     const handler = () => setRoute(parseRoute(window.location.hash))
@@ -103,9 +106,20 @@ export function App() {
       // 用户手动切换对话：右栏没有需要保留的子对话
       diveRef.current = null
       navigate({ kind: 'node', nodeId })
+      // 窄屏：遮罩里选完会话自动收起遮罩，回到正文；桌面保持侧栏展开不动
+      if (isNarrow) {
+        setSidebarCollapsed(true)
+        window.localStorage.setItem('sidebar-collapsed', '1')
+      }
     },
-    [navigate],
+    [navigate, isNarrow],
   )
+
+  /** 窄屏头部 ☰：把侧栏以遮罩形态拉开 */
+  const openSidebar = useCallback(() => {
+    setSidebarCollapsed(false)
+    window.localStorage.setItem('sidebar-collapsed', '0')
+  }, [])
 
   // 换节点/换页面时收起右栏，避免问题挂到别的节点上；下潜时则按预定安排还原右栏。
   // 这里不消费 diveRef，StrictMode 下重复执行也得到同一结果。
@@ -262,18 +276,21 @@ export function App() {
         {isTrack ? (
           <>
             {/* 分隔条固定在中栏右边缘；轨道本身只整体平移，不单独动任何一格 */}
-            <div
-              className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
-              style={{ left: `${paneWidth}px` }}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整中栏宽度"
-              onPointerDown={startPaneDrag}
-            />
+            {!isNarrow && (
+              <div
+                className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
+                style={{ left: `${paneWidth}px` }}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整中栏宽度"
+                onPointerDown={startPaneDrag}
+              />
+            )}
             <TrackStage
               lanes={lanes}
               centerWidth={paneWidth}
               viewportWidth={viewportWidth}
+              singlePane={isNarrow}
               renderLane={(lane, index) => {
                 const isCenter = index === centerIdx
                 const isRight = index === lastIdx
@@ -297,6 +314,7 @@ export function App() {
                     data={data}
                     nodeId={lane.nodeId}
                     onNavigate={openNode}
+                    onOpenMenu={openSidebar}
                     onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
                     onRequestAsk={(reading) =>
                       beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
@@ -356,7 +374,9 @@ export function App() {
           </>
         ) : (
           <>
-            {route.kind === 'topics' && <StartPage data={data} onCreated={openNode} />}
+            {route.kind === 'topics' && (
+              <StartPage data={data} onCreated={openNode} onOpenMenu={openSidebar} />
+            )}
 
             {route.kind === 'tree' && (
               <TreePage

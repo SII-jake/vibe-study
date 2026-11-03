@@ -49,7 +49,7 @@ describe('normalizeServerUrl', () => {
 
 describe('loadSavedServer / saveServer', () => {
   it('未保存时回落到默认地址', () => {
-    expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
+      expect(window.VibeBoot.loadSavedServer()).toBe('https://digital-gene.sii.edu.cn')
   })
 
   it('保存后再读取返回保存值', () => {
@@ -59,7 +59,7 @@ describe('loadSavedServer / saveServer', () => {
 
   it('保存的值损坏时回落到默认地址', () => {
     window.localStorage.setItem('vibe-study.server-url', '::::')
-    expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
+      expect(window.VibeBoot.loadSavedServer()).toBe('https://digital-gene.sii.edu.cn')
   })
 })
 

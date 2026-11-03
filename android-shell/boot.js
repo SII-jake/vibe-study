@@ -1,7 +1,7 @@
 /** 启动页逻辑：纯浏览器实现，不依赖 Capacitor API，file:// 下即可运行（也便于测试）。 */
 
 const VIBE_BOOT_STORAGE_KEY = 'vibe-study.server-url'
-const DEFAULT_SERVER = 'https://study.sii.edu.cn'
+const DEFAULT_SERVER = 'https://digital-gene.sii.edu.cn'
 
 /** 把用户输入归一成服务器源地址；无法识别的输入返回 null。 */
 function normalizeServerUrl(input) {
