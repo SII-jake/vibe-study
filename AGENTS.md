@@ -23,6 +23,12 @@ test -d node_modules && echo ok      # 环境就绪检查：依赖已安装（np
 
 纯问答、文档阅读、调研类任务可跳过。
 
+## APP 版本纪律（发版必执行）
+
+- **只 bump `android/app/build.gradle` 的 `versionName`**（如 1.0.0 → 1.0.1）；`versionCode` 由它自动推导，服务器 `versionCodeOf` 同一算法，禁止两处各说各话。
+- 有原生改动（`android/` 下 Java/Manifest/gradle）必须 bump；纯前端/sites 改动不用。
+- bump 后跑 `bash scripts/publish-apk.sh` 构建并发布到 `dist/app/`；服务器部署会带上这个目录，壳内检查更新自然生效。签名用 `android/app/keystore/` 的 release keystore（本地持有、不进 git、同一指纹贯穿所有版本）。
+
 ## 常用命令
 
 > 每条注明验收含义（如"必须全绿才能交付"）。

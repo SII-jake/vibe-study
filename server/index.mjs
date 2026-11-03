@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { isConfigured, loadServerConfig, withEnvSource } from './config.mjs'
 import { createHandler } from './handler.mjs'
+import { createAppVersionHandler } from './app-version.mjs'
 import { createStaticHandler } from './static.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -19,10 +20,16 @@ if (!isConfigured(config)) {
 }
 
 const apiHandler = createHandler(config)
+const appVersionHandler = createAppVersionHandler(distDir)
 const staticHandler = createStaticHandler(distDir)
 
 createServer((request, response) => {
   const { pathname } = new URL(request.url, 'http://localhost')
+  // 壳内检查更新专用端点：与 /api/chat 的 AI 配置无关，未配密钥也要可用
+  if (pathname === '/api/app-version') {
+    void appVersionHandler(request, response)
+    return
+  }
   if (pathname === '/api' || pathname.startsWith('/api/')) {
     void apiHandler(request, response)
     return
