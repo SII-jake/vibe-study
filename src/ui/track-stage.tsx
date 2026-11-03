@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { type Lane, trackOffset } from '../app/track-view'
+import { type Lane, singlePaneOffset, trackOffset } from '../app/track-view'
 
 export interface TrackStageProps {
   /** 整条轨道：根 → … → 中栏 → 右栏，一次全部渲染 */
@@ -31,7 +31,10 @@ export function TrackStage({
   // 单栏：各格与视口同宽，双栏：末格（右栏）吃掉中栏之外的剩余视口
   const laneWidth = (index: number) =>
     singlePane ? viewportWidth : index === lastIndex ? Math.max(0, viewportWidth - centerWidth) : centerWidth
-  const offset = trackOffset(lanes, singlePane ? viewportWidth : centerWidth)
+  // 单栏钉中栏不看末端：小屏只读一个对话，右栏不能把当前对话顶出视口
+  const offset = singlePane
+    ? singlePaneOffset(lanes, viewportWidth)
+    : trackOffset(lanes, centerWidth)
 
   return (
     <div className="track-stage">

@@ -4,6 +4,8 @@ import {
   centerLane,
   computeTrack,
   rightLane,
+  routeTrack,
+  singlePaneOffset,
   trackOffset,
 } from '../src/app/track-view'
 
@@ -76,5 +78,48 @@ describe('trackOffset：整条轨道一次平移', () => {
     const before = computeTrack(['root'], 'a1') // 中栏 root，右栏 a1
     const after = computeTrack(['root', 'a1'], 'b1') // 中栏 a1，右栏 b1
     expect(trackOffset(before, 600) - trackOffset(after, 600)).toBe(600)
+  })
+})
+
+/**
+ * 窄屏轨道 = 只放路由链上的对话（当前节点 + 它的祖先）。
+ * 手机屏小，一次只展示一个对话：右栏与起草位不进轨道，
+ * 点分支整屏导航、返回键回退，祖先格留在屏外供位移动画。
+ */
+describe('routeTrack：窄屏只放路由链', () => {
+  it('只有当前节点与其祖先，没有右栏或起草位', () => {
+    const lanes = routeTrack(['root', 'a1'])
+    expect(lanes.map((lane) => lane.nodeId)).toEqual(['root', 'a1'])
+    expect(lanes.every((lane) => lane.nodeId !== null)).toBe(true)
+  })
+
+  it('每格按深度标注父子关系，与 computeTrack 同源', () => {
+    expect(routeTrack(['root', 'a1']).map((lane) => lane.relation)).toEqual(['root', 'child'])
+    expect(computeTrack(['root', 'a1'], 'b1').slice(0, 2)).toEqual(routeTrack(['root', 'a1']))
+  })
+})
+
+/**
+ * 单栏偏移（窄视口）：视口钉在轨道末格 —— 末格就是路由上的当前对话。
+ * 与桌面 trackOffset 的窗口语义不同：窄屏轨道里没有右栏，
+ * 每深入一代，视口按一整屏左推进到新的当前对话。
+ */
+describe('singlePaneOffset：视口钉在当前对话', () => {
+  it('单格轨道（根会话）停在起点，偏移为 0（不是 -0）', () => {
+    const offset = singlePaneOffset(routeTrack(['root']), 700)
+    expect(offset).toBe(0)
+    expect(Object.is(offset, -0)).toBe(false)
+  })
+
+  it('下潜一代，视口左推一整屏到当前对话，父级退到屏外', () => {
+    expect(singlePaneOffset(routeTrack(['root', 'a1']), 700)).toBe(-700)
+  })
+
+  it('继续下潜，每深一代再推一整屏', () => {
+    expect(singlePaneOffset(routeTrack(['root', 'a1', 'b1']), 700)).toBe(-1400)
+  })
+
+  it('空轨道也不返回越界偏移', () => {
+    expect(singlePaneOffset([], 700)).toBe(0)
   })
 })
