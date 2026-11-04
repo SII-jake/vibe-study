@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildChatMessages } from '../domain/chat'
+import { mergeNodes } from '../domain/node-merge'
 import { addChildNode, type LearnNode, breadcrumb, createRootNode } from '../domain/tree'
 import {
   appendAnswer,
@@ -13,6 +14,7 @@ import { fetchTitle } from '../ai/title'
 import { effectiveModel, fetchHealth, type ServerHealth, UNKNOWN_HEALTH } from '../ai/health'
 import { loadNodes, replaceAllNodes } from '../storage/db'
 import { createDemoNodes } from './demo'
+import { createNodeSync, type NodeSyncHandle } from './node-sync'
 
 export interface AskInput {
   parentId: string
@@ -43,7 +45,7 @@ export interface LearnData {
 
 let saveChain: Promise<void> = Promise.resolve()
 
-/** 串行落盘，避免并发写入互相覆盖。 */
+/** 串行落盘本机 IndexedDB，避免并发写入互相覆盖。 */
 function persist(nodes: LearnNode[]): void {
   saveChain = saveChain.then(() => replaceAllNodes(nodes)).catch(() => undefined)
 }
@@ -63,19 +65,48 @@ export function useLearnData(): LearnData {
 
   const nodesRef = useRef<LearnNode[]>([])
   const controllerRef = useRef<AbortController | null>(null)
+  const syncRef = useRef<NodeSyncHandle | null>(null)
 
   useEffect(() => {
     nodesRef.current = nodes
   }, [nodes])
 
   useEffect(() => {
+    let cancelled = false
     loadNodes()
       .then((loaded) => {
+        if (cancelled) return
         setNodes(loaded)
         nodesRef.current = loaded
+        // 本机数据就绪后再对齐服务端基准；同步器后续的所有采用动作
+        // 都会通过 adoptRemote 回流这里的 setNodes
+        if (!syncRef.current) {
+          const sync = createNodeSync({
+            getLocal: () => nodesRef.current,
+            replaceLocal: (next) => replaceAllNodes(next),
+            adoptRemote: (merged, base) => {
+              // 采用瞬间本端的最新状态可能与提交采用时不同（正在流的
+              // 回答刚落库）：以同一基准与本端现值再并一次，不丢写入。
+              const current = nodesRef.current
+              const finalState = mergeNodes(base, current, merged)
+              if (finalState !== current) {
+                nodesRef.current = finalState
+                setNodes(finalState)
+                persist(finalState)
+              }
+            },
+          })
+          syncRef.current = sync
+          void sync.start()
+        }
       })
       .catch(() => setError('读取本地数据失败'))
       .finally(() => setReady(true))
+    return () => {
+      cancelled = true
+      syncRef.current?.stop()
+      syncRef.current = null
+    }
   }, [])
 
   const refreshHealth = useCallback(() => {
@@ -90,6 +121,8 @@ export function useLearnData(): LearnData {
     nodesRef.current = next
     setNodes(next)
     persist(next)
+    // 通知同步器登记最新快照；同步器内部防抖后上传服务端
+    syncRef.current?.watch(next)
   }, [])
 
   /**
