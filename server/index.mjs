@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { isConfigured, loadServerConfig, parseEnvFile } from './config.mjs'
 import { createHandler } from './handler.mjs'
 import { createStaticHandler } from './static.mjs'
+import { createAuthHandler } from './auth.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -30,12 +31,13 @@ if (!isConfigured(config)) {
 }
 
 const apiHandler = createHandler(config)
-const staticHandler = createStaticHandler(distDir)
+const staticHandler = createStaticHandler(distDir, { auth: config.auth })
+const authHandler = createAuthHandler(config.auth, apiHandler)
 
 createServer((request, response) => {
   const { pathname } = new URL(request.url, 'http://localhost')
   if (pathname === '/api' || pathname.startsWith('/api/')) {
-    void apiHandler(request, response)
+    void authHandler(request, response)
     return
   }
   void staticHandler(request, response)
@@ -43,4 +45,5 @@ createServer((request, response) => {
   console.log(`[study-api] 监听 http://${host}:${port}`)
   console.log(`[study-api] 上游 ${config.baseUrl || '(未配置)'}，模型 ${config.model || '(未配置)'}`)
   console.log(`[study-api] 静态产物 ${distDir}`)
+  console.log(`[study-api] 登录门卫 ${config.auth.enabled ? `开启（口令来自 ACCESS_PASSWORD，会话 ${config.auth.ttlDays} 天）` : '关闭（内网自用）'}`)
 })

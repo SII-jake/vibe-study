@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 import { createGzip } from 'node:zlib'
+import { LOGIN_PAGE_PATH, loginPageHtml, staticNeedsAuth } from './auth.mjs'
 
 /** 按扩展名给出 MIME；mime.types 缺 webmanifest，这里显式登记。 */
 const MIME_TYPES = {
@@ -79,12 +80,40 @@ async function readFileIfExists(path) {
 /**
  * 静态资源处理器。
  * 部署位置由进程自身的启动目录决定，调用方无需在反向代理里写文件路径。
+ * opts.auth 形如 config.auth；未配置口令时与引入拦截前行为一致。
  */
-export function createStaticHandler(root) {
+export function createStaticHandler(root, opts = {}) {
   const indexFile = join(root, 'index.html')
+  const auth = opts.auth ?? null
+  const loginBody = auth?.enabled ? loginPageHtml() : null
 
   return async function serveStatic(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname
+
+    // 登录页本身必须无条件可达，否则永远登不上
+    if (auth?.enabled && pathname === LOGIN_PAGE_PATH) {
+      const body = Buffer.from(loginBody, 'utf8')
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+      })
+      request.method === 'HEAD' ? response.end() : response.end(body)
+      return
+    }
+
+    // 未登录的页面/资源访问一律引导到登录页；登录后会话 Cookie 由浏览器自带
+    // 用 303 而非 302：POST 被门挡下时重定向后统一以 GET 打开登录页，
+    // 避免某些客户端对 302 保留方法的歧义
+    if (staticNeedsAuth(request, auth, pathname)) {
+      response.writeHead(303, {
+        Location: LOGIN_PAGE_PATH,
+        'Cache-Control': 'no-store',
+        'Content-Length': 0,
+      })
+      response.end()
+      return
+    }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })

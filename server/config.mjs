@@ -45,10 +45,27 @@ export function loadServerConfig(source = process.env) {
     jinaBase: stripSlash(source.JINA_BASE ?? 'https://r.jina.ai'),
     /** 单次上游请求的超时上限（ms）。模型冷启会慢，但挂起的请求不能无限等。 */
     llmTimeoutMs: parseTimeoutMs(source.LLM_TIMEOUT_MS),
+    auth: {
+      /** 口令为空 = 登录门卫关闭（内网自用）；配置后全站与 API 一律登录后才能访问。 */
+      enabled: (source.ACCESS_PASSWORD ?? '').trim() !== '',
+      password: (source.ACCESS_PASSWORD ?? '').trim(),
+      cookie: (source.AUTH_COOKIE ?? 'vibe_auth').trim() || 'vibe_auth',
+      ttlDays: parseTtlDays(source.AUTH_TTL_DAYS),
+      secure: (source.AUTH_SECURE ?? 'true').trim().toLowerCase() !== 'false',
+    },
   }
 }
 
 const DEFAULT_LLM_TIMEOUT_MS = 60_000
+const DEFAULT_AUTH_TTL_DAYS = 30
+
+/** 会话有效天数：缺省 30 天；非法输入一律落回默认，登录态不该因手滑变短。 */
+function parseTtlDays(raw) {
+  if (raw === undefined || raw === '') return DEFAULT_AUTH_TTL_DAYS
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_AUTH_TTL_DAYS
+  return Math.round(value)
+}
 
 /** 合法的正值毫秒数就采用；缺省或非法输入一律落回默认，不静默变体。 */
 function parseTimeoutMs(raw) {
