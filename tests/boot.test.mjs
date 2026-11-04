@@ -49,7 +49,7 @@ describe('normalizeServerUrl', () => {
 
 describe('loadSavedServer / saveServer', () => {
   it('未保存时回落到默认地址', () => {
-    expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
+    expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
   })
 
   it('保存后再读取返回保存值', () => {
@@ -59,7 +59,7 @@ describe('loadSavedServer / saveServer', () => {
 
   it('保存的值损坏时回落到默认地址', () => {
     window.localStorage.setItem('vibe-study.server-url', '::::')
-    expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
+    expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
   })
 })
 
@@ -109,11 +109,11 @@ describe('enterApp 自动登录', () => {
       submitted = this
     }
     try {
-      window.VibeBoot.enterApp('https://study.sii.edu.cn')
+      window.VibeBoot.enterApp('http://210.45.88.175:8787')
       expect(submitted.querySelector('input[name="password"]').value).toBe(
         window.VibeBoot.DEFAULT_PASSWORD,
       )
-      expect(submitted.action).toBe('https://study.sii.edu.cn/api/auth')
+      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
     } finally {
       window.HTMLFormElement.prototype.submit = oldSubmit
     }

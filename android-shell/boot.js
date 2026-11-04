@@ -2,7 +2,7 @@
 
 const VIBE_BOOT_STORAGE_KEY = 'vibe-study.server-url'
 const VIBE_BOOT_PASSWORD_KEY = 'vibe-study.password'
-const DEFAULT_SERVER = 'https://study.sii.edu.cn'
+const DEFAULT_SERVER = 'http://210.45.88.175:8787'
 /** 口令硬编码一份默认：自用单机库 default 即正确值；改服务器口令后在启动页里改本地值即可。 */
 const DEFAULT_PASSWORD = 'vi'
 

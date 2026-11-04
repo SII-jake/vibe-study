@@ -205,6 +205,39 @@ describe('登录端点 /api/auth', () => {
     expect(response.headers.get('location')).toBe(`${LOGIN_PAGE_PATH}?e=1`)
     expect(response.headers.get('set-cookie')).toBeNull()
   })
+
+  it('SECURE 降级：IP/裸 HTTP 部署签发的 Cookie 不带 Secure（否则 WebView 丢弃）', async () => {
+    // 手机壳经 http://IP:8787 直连，无 TLS：Secure Cookie 会被 WebView 静默丢弃，
+    // 壳永远登不上。这种部署形态下 Secure 必须降级掉。
+    const auth = makeAuth({ secure: false })
+    running = await serve(createAuthHandler(auth))
+    const response = await fetch(`${running.base}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `password=${encodeURIComponent(PASSWORD)}`,
+      redirect: 'manual',
+    })
+    expect(response.status).toBe(303)
+    const setCookie = response.headers.get('set-cookie')
+    expect(setCookie).toContain(`${auth.cookie}=`)
+    expect(setCookie.toLowerCase()).not.toContain('secure')
+  })
+
+  it('SECURE 默认：HTTPS 部署（反代 x-forwarded-proto=https）Cookie 仍带 Secure', async () => {
+    const auth = makeAuth({ secure: true })
+    running = await serve(createAuthHandler(auth))
+    const response = await fetch(`${running.base}/api/auth`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Forwarded-Proto': 'https',
+      },
+      body: `password=${encodeURIComponent(PASSWORD)}`,
+      redirect: 'manual',
+    })
+    expect(response.status).toBe(303)
+    expect(response.headers.get('set-cookie').toLowerCase()).toContain('secure')
+  })
 })
 
 describe('静态资源登录拦截（整站门禁）', () => {
