@@ -160,6 +160,40 @@ function readJsonBody(request) {
   })
 }
 
+function readRawBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    request.on('data', (chunk) => {
+      size += chunk.length
+      if (size > 64 * 1024) {
+        reject(new Error('请求体过大'))
+        request.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    request.on('error', reject)
+  })
+}
+
+function isFormSubmit(request) {
+  const type = request.headers['content-type'] ?? ''
+  return type.startsWith('application/x-www-form-urlencoded')
+}
+
+/** 表单登录是整页导航：成功/失败都用 303 落到某个页面，而不是 JSON。 */
+function redirect(response, location, setCookie) {
+  if (setCookie) response.setHeader('Set-Cookie', setCookie)
+  response.writeHead(303, {
+    Location: location,
+    'Cache-Control': 'no-store',
+    'Content-Length': 0,
+  })
+  response.end()
+}
+
 /**
  * /api/auth 登录端点 + 前置拦截器。
  *
@@ -182,18 +216,32 @@ export function createAuthHandler(auth, next) {
       }
       let payload
       try {
-        payload = await readJsonBody(request)
+        if (isFormSubmit(request)) {
+          // 壳端整页导航登录：body 是 password=xxx，不走 JSON
+          payload = Object.fromEntries(new URLSearchParams(await readRawBody(request)))
+        } else {
+          payload = await readJsonBody(request)
+        }
       } catch (cause) {
         sendJson(response, 400, { error: cause.message })
         return true
       }
       if (!passwordMatch(auth, payload?.password)) {
+        if (isFormSubmit(request)) {
+          redirect(response, `${LOGIN_PAGE_PATH}?e=1`, null)
+          return true
+        }
         sendJson(response, 401, { ok: false, error: '口令不正确' })
         return true
       }
       const session = issueSession(auth)
       // Set-Cookie 必须先于 writeHead 落到响应头，否则头一发出就补不上了
-      response.setHeader('Set-Cookie', `${session.name}=${session.value}; ${session.attributes}`)
+      const cookie = `${session.name}=${session.value}; ${session.attributes}`
+      if (isFormSubmit(request)) {
+        redirect(response, '/', cookie)
+        return true
+      }
+      response.setHeader('Set-Cookie', cookie)
       sendJson(response, 200, { ok: true })
       return true
     }
@@ -269,6 +317,11 @@ export function loginPageHtml() {
           msg.textContent = '网络异常，请重试';
         }).finally(function () { b.disabled = false; });
       });
+      // 壳端整页导航登录失败会回跳 /login.html?e=1：就地翻译成可读提示
+      if (new URLSearchParams(location.search).get('e') === '1') {
+        msg.textContent = '口令不正确';
+        p.focus();
+      }
     </script>
   </body>
 </html>

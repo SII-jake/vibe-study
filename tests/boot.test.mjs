@@ -62,3 +62,60 @@ describe('loadSavedServer / saveServer', () => {
     expect(window.VibeBoot.loadSavedServer()).toBe('https://study.sii.edu.cn')
   })
 })
+
+describe('访问口令', () => {
+  it('未设置时回落到硬编码默认口令', () => {
+    expect(window.VibeBoot.loadPassword()).toBe(window.VibeBoot.DEFAULT_PASSWORD)
+    expect(window.VibeBoot.DEFAULT_PASSWORD.length).toBeGreaterThan(0)
+  })
+
+  it('保存自定义口令后读取返回保存值', () => {
+    window.VibeBoot.savePassword('my-own-pass')
+    expect(window.VibeBoot.loadPassword()).toBe('my-own-pass')
+  })
+
+  it('保存空串等于清除，回落到默认口令', () => {
+    window.VibeBoot.savePassword('my-own-pass')
+    window.VibeBoot.savePassword('')
+    expect(window.VibeBoot.loadPassword()).toBe(window.VibeBoot.DEFAULT_PASSWORD)
+  })
+})
+
+describe('enterApp 自动登录', () => {
+  it('以表单 POST 向服务器 /api/auth 提交口令，成功后落进应用', () => {
+    const oldSubmit = window.HTMLFormElement.prototype.submit
+    let submitted = null
+    window.HTMLFormElement.prototype.submit = function () {
+      submitted = this
+    }
+    try {
+      window.VibeBoot.savePassword('saved-pass')
+      window.VibeBoot.enterApp('http://210.45.88.175:8787')
+      expect(submitted).not.toBeNull()
+      expect(submitted.method.toLowerCase()).toBe('post')
+      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
+      const field = submitted.querySelector('input[name="password"]')
+      expect(field).not.toBeNull()
+      expect(field.value).toBe('saved-pass')
+    } finally {
+      window.HTMLFormElement.prototype.submit = oldSubmit
+    }
+  })
+
+  it('未改过口令时提交默认口令', () => {
+    const oldSubmit = window.HTMLFormElement.prototype.submit
+    let submitted = null
+    window.HTMLFormElement.prototype.submit = function () {
+      submitted = this
+    }
+    try {
+      window.VibeBoot.enterApp('https://study.sii.edu.cn')
+      expect(submitted.querySelector('input[name="password"]').value).toBe(
+        window.VibeBoot.DEFAULT_PASSWORD,
+      )
+      expect(submitted.action).toBe('https://study.sii.edu.cn/api/auth')
+    } finally {
+      window.HTMLFormElement.prototype.submit = oldSubmit
+    }
+  })
+})

@@ -131,6 +131,14 @@ describe('auth 会话原语', () => {
     expect(html.toLowerCase()).toContain('<!doctype html>')
     expect(html).not.toContain(PASSWORD)
   })
+
+  it('表单登录失败回跳 ?e=1 时，登录页能就地提示口令不正确', () => {
+    // 壳端整页导航登录失败后落在 /login.html?e=1：不把参数翻译成提示文案，
+    // 用户只会看到一张没有上下文的空白登录页
+    const html = loginPageHtml()
+    expect(html).toContain('e=1')
+    expect(html).toContain('口令不正确')
+  })
 })
 
 describe('登录端点 /api/auth', () => {
@@ -168,6 +176,34 @@ describe('登录端点 /api/auth', () => {
     running = await serve(createAuthHandler(auth))
     const response = await fetch(`${running.base}/api/auth`, { ...noRedirect })
     expect(response.status).toBe(405)
+  })
+
+  it('表单提交口令正确：种 Cookie 并 303 落进应用（壳端整页导航登录）', async () => {
+    const auth = makeAuth()
+    running = await serve(createAuthHandler(auth))
+    const response = await fetch(`${running.base}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `password=${encodeURIComponent(PASSWORD)}`,
+      redirect: 'manual',
+    })
+    expect(response.status).toBe(303)
+    expect(response.headers.get('location')).toBe('/')
+    expect(response.headers.get('set-cookie')).toContain(`${auth.cookie}=`)
+  })
+
+  it('表单提交口令错误：回到登录页并带错误标记，不种 Cookie', async () => {
+    const auth = makeAuth()
+    running = await serve(createAuthHandler(auth))
+    const response = await fetch(`${running.base}/api/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'password=wrong',
+      redirect: 'manual',
+    })
+    expect(response.status).toBe(303)
+    expect(response.headers.get('location')).toBe(`${LOGIN_PAGE_PATH}?e=1`)
+    expect(response.headers.get('set-cookie')).toBeNull()
   })
 })
 
