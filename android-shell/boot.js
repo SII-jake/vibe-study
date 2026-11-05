@@ -36,11 +36,51 @@ function saveServer(server) {
   window.localStorage.setItem(VIBE_BOOT_STORAGE_KEY, server)
 }
 
+/**
+ * 壳内检查更新：问服务器发布了哪个 APK，与原生桥给的当前版本号比对。
+ * 状态机：no-bridge（纯浏览器） / skipped（服务器没发布或不可达，静默放行）
+ * / up-to-date / need-permission（有新版、缺安装权限） / downloading（已拉起下载）。
+ * 壳只在 downloading 与 need-permission 两态拦下进入应用，其余一律放行。
+ */
+async function checkAppUpdate(server) {
+  const bridge = window.VibeAppUpdate
+  if (!bridge || typeof bridge.getVersionCode !== 'function') return { status: 'no-bridge' }
+
+  let published
+  try {
+    const response = await fetch(`${server}/api/app-version`)
+    if (!response.ok) return { status: 'skipped', reason: `http-${response.status}` }
+    published = await response.json()
+  } catch (error) {
+    return { status: 'skipped', reason: error?.message ?? 'offline' }
+  }
+
+  const remoteCode = Number(published?.versionCode)
+  if (!Number.isInteger(remoteCode) || remoteCode < 1) {
+    return { status: 'up-to-date', current: bridge.getVersionCode() }
+  }
+
+  const current = bridge.getVersionCode()
+  if (remoteCode <= current) return { status: 'up-to-date', current }
+
+  const versionName = published.versionName ?? ''
+  if (typeof bridge.hasUpdatePermission === 'function' && !bridge.hasUpdatePermission()) {
+    // 权限引导：打开本应用「安装未知来源」系统设置；用户开完回来自动再检查
+    bridge.openUpdatePermissionSettings()
+    return { status: 'need-permission', versionName }
+  }
+
+  const url = `${server}/app/${published.apkName}`
+  bridge.downloadAndInstall(url, published.sha256 ?? '')
+  return { status: 'downloading', versionName }
+}
+
 window.VibeBoot = {
   DEFAULT_SERVER,
   normalizeServerUrl,
   loadSavedServer,
   saveServer,
+  checkAppUpdate,
   enterApp(server) {
     window.location.replace(server)
   },

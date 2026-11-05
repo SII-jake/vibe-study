@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // dist/app/ 放着 OTA 分发的 APK，清空会悄悄杀掉版本分发——APK 命归 publish-apk.sh 管
+    emptyOutDir: false,
+  },
   test: {
     globals: true,
     environment: 'node',

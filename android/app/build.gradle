@@ -7,8 +7,12 @@ android {
         applicationId "cn.sii.yjzhou.vibestudy"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // 版本纪律（AGENTS.md 铁律登记）：发版只 bump versionName；
+        // versionCode 由它推导，与 server/app-version.mjs 的 versionCodeOf 同算法——
+        // 壳内比较与服务器口径是同一个数，不会出现两边各说各话。
+        def semParts = "1.0.1".split(/\./).collect { it as int }
+        versionCode semParts[0] * 10000000 + semParts[1] * 100000 + semParts[2] * 1000
+        versionName "1.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +20,36 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // OTA 签名：同一 keystore 贯穿所有 release 发版，新旧包签名一致系统才允许覆盖安装。
+    // keystore 与密码在 android/app/keystore/ 与 android/keystore.properties，均 gitignore、本地持有。
+    signingConfigs {
+        release {
+            def props = new Properties()
+            def propsFile = rootProject.file('keystore.properties')
+            if (propsFile.exists()) {
+                propsFile.withInputStream { props.load(it) }
+                storeFile file(props['storeFile'])
+                keyAlias props['keyAlias']
+                storePassword props['storePassword']
+                keyPassword props['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (rootProject.file('keystore.properties').exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    // APK 产物名带产品名与版本，不再落 app-debug 这种默认名；
+    // 服务端 /api/app-version 从文件名解析 versionName，名字不对版本比较直接失效。
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "vibe-study-${variant.versionName}-${variant.buildType.name}.apk"
         }
     }
 }

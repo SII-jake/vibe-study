@@ -20,6 +20,8 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
+  // APK 走静态目录分发：壳内检查更新时按 /app/<apkName> 直接下载
+  '.apk': 'application/vnd.android.package-archive',
 }
 
 const NO_STORE = 'no-store'
