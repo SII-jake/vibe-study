@@ -8,3 +8,4 @@ server/.env
 eval/reports/
 *.jks
 android/keystore.properties
+server/data/
