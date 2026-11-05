@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AskPane } from '../ui/AskPane'
+import { CollapsibleSidebar } from '../ui/CollapsibleSidebar'
 import { NodePage } from '../ui/NodePage'
 import { SessionList } from '../ui/SessionList'
 import { SettingsPage } from '../ui/SettingsPage'
@@ -8,10 +9,13 @@ import { TrackStage } from '../ui/track-stage'
 import { TreePage } from '../ui/TreePage'
 import { toAskInput } from '../ui/ask-target'
 import { useElementWidth } from '../ui/use-element-width'
+import { useMediaQuery } from '../ui/use-media-query'
 import { usePaneWidth } from '../ui/use-pane-width'
 import type { SelectionReading } from '../ui/selection'
 import { breadcrumb } from '../domain/tree'
-import { centerIndex, computeTrack } from './track-view'
+import { rememberFocus } from '../ui/view-memory'
+import { centerIndex, computeTrack, routeTrack } from './track-view'
+import { useBackButton } from './use-back-button'
 import {
   type PaneSide,
   type PaneView,
@@ -44,7 +48,9 @@ interface DiveIntent {
  * - 从右栏发起：当前右栏本身就是父级，于是它立刻升入中栏，右栏让给新问答
  * 提交后新节点落到右栏，继续可读、可继续追问。
  *
- * TODO(mobile): 手机端交互暂关闭，后续单独设计。当前只按桌面三栏布局工作。
+ * 手机（窄视口）屏小，一次只展示一个对话：轨道只放路由链上的对话，
+ * 点分支整屏导航、返回键回退；选中提问回退到底部弹窗（NodePage 内
+ * 未传 onRequestAsk 时的既有形态），不放桌面的右栏与起草位。
  */
 export function App() {
   const data = useLearnData()
@@ -52,8 +58,15 @@ export function App() {
   const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null)
   /** 右栏正在读的子对话；与 pendingAsk 互斥，同一时刻只出现一个 */
   const [rightNodeId, setRightNodeId] = useState<string | null>(null)
+  /** 左侧栏收起偏好：localStorage 记一次，下次进来直接收起/展开 */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem('sidebar-collapsed') === '1',
+  )
   /** 中心和右栏要一起变，用它告诉 route 副作用这次别清空右栏 */
   const diveRef = useRef<DiveIntent | null>(null)
+  /** 退出提示：root 页首次按返回时拉起，再按一次退出 */
+  const [exitPrompt, setExitPrompt] = useState(false)
+  const exitPromptTimer = useRef<number | null>(null)
   /** 中栏宽度：分隔条向右拖变宽，右栏同时让出 */
   const [paneWidth, paneDragging, startPaneDrag] = usePaneWidth({
     initial: 640,
@@ -63,6 +76,8 @@ export function App() {
   })
   /** 轨道舞台的实际像素宽，用于把两格铺满视口 */
   const [stageRef, viewportWidth] = useElementWidth<HTMLDivElement>()
+  /** 窄视口（手机）：主区全宽、轨道单栏、侧栏遮罩开合 */
+  const isNarrow = useMediaQuery('(max-width: 767px)')
 
   useEffect(() => {
     const handler = () => setRoute(parseRoute(window.location.hash))
@@ -93,9 +108,20 @@ export function App() {
       // 用户手动切换对话：右栏没有需要保留的子对话
       diveRef.current = null
       navigate({ kind: 'node', nodeId })
+      // 窄屏：遮罩里选完会话自动收起遮罩，回到正文；桌面保持侧栏展开不动
+      if (isNarrow) {
+        setSidebarCollapsed(true)
+        window.localStorage.setItem('sidebar-collapsed', '1')
+      }
     },
-    [navigate],
+    [navigate, isNarrow],
   )
+
+  /** 窄屏头部 ☰：把侧栏以遮罩形态拉开 */
+  const openSidebar = useCallback(() => {
+    setSidebarCollapsed(false)
+    window.localStorage.setItem('sidebar-collapsed', '0')
+  }, [])
 
   // 换节点/换页面时收起右栏，避免问题挂到别的节点上；下潜时则按预定安排还原右栏。
   // 这里不消费 diveRef，StrictMode 下重复执行也得到同一结果。
@@ -122,6 +148,43 @@ export function App() {
   )
 
   const centerNodeId = route.kind === 'node' ? route.nodeId : null
+
+  /** 硬件返回键：与页面内「返回上一级」同口径，落到路由回到上一层。 */
+  const goBackRoute = useCallback(() => {
+    if (route.kind === 'node') {
+      const node = data.nodes.find((item) => item.id === route.nodeId)
+      if (node?.parentId) {
+        // 与 NodePage 内 goBack 一致：记下锚点现场，视口左移到父级（留在右栏）
+        if (node.anchor) rememberFocus(node.parentId, node.anchor)
+        const next = planGoBack({ centerNodeId, rightNodeId }, node.parentId)
+        diveTo(next.centerNodeId ?? node.parentId, next.rightNodeId, null)
+        return
+      }
+      navigate({ kind: 'topics' })
+      return
+    }
+    if (route.kind === 'tree') {
+      navigate({ kind: 'node', nodeId: route.nodeId })
+      return
+    }
+    if (route.kind === 'settings') {
+      const rootId =
+        (centerNodeId ? breadcrumb(data.nodes, centerNodeId)[0]?.id : undefined) ??
+        data.nodes[0]?.id ??
+        null
+      navigate(rootId ? { kind: 'node', nodeId: rootId } : { kind: 'topics' })
+      return
+    }
+    navigate({ kind: 'topics' })
+  }, [route, data.nodes, centerNodeId, rightNodeId, navigate, diveTo])
+
+  const showExitPrompt = useCallback(() => {
+    setExitPrompt(true)
+    if (exitPromptTimer.current !== null) window.clearTimeout(exitPromptTimer.current)
+    exitPromptTimer.current = window.setTimeout(() => setExitPrompt(false), 2000)
+  }, [])
+
+  useBackButton({ route, goBack: goBackRoute, showExitPrompt })
 
   /** 子对话落位的唯一入口：中栏发起只进右栏，右栏发起则先下潜。 */
   const placeChild = useCallback(
@@ -180,7 +243,9 @@ export function App() {
   const centerPath = isTrack
     ? breadcrumb(data.nodes, route.nodeId).map((item) => item.id)
     : []
-  const lanes = computeTrack(centerPath, rightNodeId)
+  // 窄屏一次只看一个对话：轨道只放路由链；桌面才带右栏/起草位。
+  // 一旦窄屏混入右栏占位，轨道会出现用户滑不过去的屏外格。
+  const lanes = isNarrow ? routeTrack(centerPath) : computeTrack(centerPath, rightNodeId)
   const centerIdx = centerIndex(lanes)
   const lastIdx = lanes.length - 1
 
@@ -195,29 +260,46 @@ export function App() {
   )
 
   return (
-    <div className="app-shell" data-dragging={paneDragging ? '' : undefined}>
+    <div
+      className="app-shell"
+      data-dragging={paneDragging ? '' : undefined}
+      data-sidebar-collapsed={sidebarCollapsed ? '' : undefined}
+    >
       {/* TODO(mobile): 手机端的抽屉入口暂时关闭，后续单独设计手机交互 */}
-      <aside className="app-sidebar">{sidebar}</aside>
+      <CollapsibleSidebar
+        collapsed={sidebarCollapsed}
+        onToggle={(collapsed) => {
+          setSidebarCollapsed(collapsed)
+          window.localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0')
+        }}
+      >
+        {sidebar}
+      </CollapsibleSidebar>
 
       <div className="app-main" ref={stageRef}>
         {isTrack ? (
           <>
             {/* 分隔条固定在中栏右边缘；轨道本身只整体平移，不单独动任何一格 */}
-            <div
-              className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
-              style={{ left: `${paneWidth}px` }}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整中栏宽度"
-              onPointerDown={startPaneDrag}
-            />
+            {!isNarrow && (
+              <div
+                className={`pane-divider ${paneDragging ? 'pane-divider-required' : ''}`}
+                style={{ left: `${paneWidth}px` }}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整中栏宽度"
+                onPointerDown={startPaneDrag}
+              />
+            )}
             <TrackStage
               lanes={lanes}
               centerWidth={paneWidth}
               viewportWidth={viewportWidth}
+              singlePane={isNarrow}
               renderLane={(lane, index) => {
-                const isCenter = index === centerIdx
-                const isRight = index === lastIdx
+                // 窄屏没有中右分栏：每格都是整页主格（页头与追问条都要在），
+                // 也永远不进「右栏桌面条」分支
+                const isCenter = isNarrow || index === centerIdx
+                const isRight = !isNarrow && index === lastIdx
 
                 if (lane.nodeId === null) {
                   return pendingAsk ? (
@@ -238,18 +320,33 @@ export function App() {
                     data={data}
                     nodeId={lane.nodeId}
                     onNavigate={openNode}
+                    onOpenMenu={openSidebar}
                     onOpenTree={(nodeId) => navigate({ kind: 'tree', nodeId })}
-                    onRequestAsk={(reading) =>
-                      beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
+                    // 窄屏不传 onRequestAsk：NodePage 回退到底部弹窗提问，
+                    // 提问内容不再落到屏外起草位
+                    onRequestAsk={
+                      isNarrow
+                        ? undefined
+                        : (reading) => beginAsk(lane.nodeId!, reading, isCenter ? 'main' : 'right')
                     }
-                    onOpenBranch={(id) => placeChild(id, isCenter ? 'main' : 'right')}
-                    onGoBack={(parentId) => {
+                    // 窄屏不传 onOpenBranch：点分支回退 onNavigate 整屏导航，
+                    // 子对话不再躲进屏外右栏
+                    onOpenBranch={
+                      isNarrow
+                        ? undefined
+                        : (id) => placeChild(id, isCenter ? 'main' : 'right')
+                    }
+                    // 窄屏不传 onGoBack：返回退到 onNavigate 走 hash 路由，
+                    // 系统返回键/浏览器后退天然回退，不再往屏外右栏塞刚读的对话
+                    onGoBack={
+                      isNarrow ? undefined : (parentId) => {
                       // 返回 = 视口左移一格：刚读的对话留在右栏，不清空
                       const next = planGoBack({ centerNodeId, rightNodeId }, parentId)
                       if (next.centerNodeId) {
                         diveTo(next.centerNodeId, next.rightNodeId, null)
                       }
-                    }}
+                    }
+                    }
                     compact={!isCenter}
                   />
                 )
@@ -297,7 +394,9 @@ export function App() {
           </>
         ) : (
           <>
-            {route.kind === 'topics' && <StartPage data={data} onCreated={openNode} />}
+            {route.kind === 'topics' && (
+              <StartPage data={data} onCreated={openNode} onOpenMenu={openSidebar} />
+            )}
 
             {route.kind === 'tree' && (
               <TreePage
@@ -326,6 +425,12 @@ export function App() {
       {data.error && (
         <div className="toast" role="alert" onClick={data.clearError}>
           {data.error}
+        </div>
+      )}
+
+      {exitPrompt && !data.error && (
+        <div className="toast" role="status">
+          再按一次返回退出
         </div>
       )}
     </div>

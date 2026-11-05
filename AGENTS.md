@@ -23,6 +23,13 @@ test -d node_modules && echo ok      # 环境就绪检查：依赖已安装（np
 
 纯问答、文档阅读、调研类任务可跳过。
 
+## APP 版本纪律（发版必执行）
+
+- **只 bump `android/app/build.gradle` 的 `versionName`**（如 1.0.0 → 1.0.1）；`versionCode` 由它自动推导，服务器 `versionCodeOf` 同一算法，禁止两处各说各话。
+- 有原生改动（`android/` 下 Java/Manifest/gradle）必须 bump；纯前端/sites 改动不用。
+- bump 后跑 `bash scripts/publish-apk.sh` 构建并发布到 `dist/app/`；服务器部署会带上这个目录，壳内检查更新自然生效。签名用 `android/app/keystore/` 的 release keystore（本地持有、不进 git、同一指纹贯穿所有版本）。
+- **一键发布入口：`bash scripts/release.sh`**——人说"发布"就跑它：质量门（单测）→ 前端构建 → 打包 APK（复用 publish-apk.sh）→ 精确重启后端（127.0.0.1:8787，只杀 cwd 与命令行都匹配本仓库的那个进程，不匹配拒绝动手）→ 健康检查（`/api/app-version` 须回 build.gradle 的 versionName）。该脚本不自动 bump versionName；bump 由人先改好再发布。
+
 ## 常用命令
 
 > 每条注明验收含义（如"必须全绿才能交付"）。
@@ -37,6 +44,7 @@ npm run build           # 构建，涉构建的改动必须构建成功
 已知风险：
 
 - 以上命令均为标准 Node/TypeScript 工具链的本地命令，无后台调度、写库、对外调用类副作用。
+- `bash scripts/release.sh` 例外专条：它**会**杀掉本仓库在 8787 的后端进程并重启（有 10–60s 服务窗口），会写 `dist/`、`/tmp/study-api.log`，gradle 会走网络拉依赖。只允许在用户明确说"发布"时执行。
 
 ## 铁律（违反即返工）
 
@@ -51,14 +59,15 @@ npm run build           # 构建，涉构建的改动必须构建成功
    *验收*：`npm test`、`npx tsc --noEmit`、`npm run build` 按"常用命令"节注明的验收全部实际跑通。
 6. **`docs/architecture.md` 只读**。设计变化找产品/设计对齐，不在代码里私改语义。
    *验收*：仓库历史里不存在未走公开评审流程的 architecture.md 修改。
-7. **push 前按 checklist 完成检查**，完整核对清单见 `docs/before-push-checklist.md`。任何检查项勾不出来时必须在 PR 里显式报告未完成项与原因，不许静默跳过。
-   *验收*：PR 内容包括逐项检查结果；勾不出来的项已写明原因并显式报给人。
-8. **提交代码走新分支 + PR（默认合入 `main`）**，一个分支/PR 只做一件事。
+7. **push 前按 checklist 完成检查**，完整核对清单见 `docs/before-push-checklist.md`。任何检查项勾不出来时必须在 push 汇报里显式报告未完成项与原因，不许静默跳过。
+   *验收*：push 汇报包括逐项检查结果；勾不出来的项已写明原因并显式报给人。
+8. **提交代码走新分支，一个分支只做一件事；单人开发不走 PR。**
    - 开工前先同步基点：任何新功能/修复动手前，先 `git fetch origin`，从最新的 `origin/main` 拉新分支开工（`git checkout -b <type>/<短名> origin/main`）；不得基于本地旧分支、未合入的在途分支或过期的 main 直接开工。
    - 分支命名：`<type>/<语义短名>`；type 与 commit message 的 type 同集合（feature|fix|docs|refactor|chore|test|perf），短名全小写英文加连字符（如 `feature/user-export`），不带人名、日期；工具自动生成的隔离分支（如 `synergy/*`）不受此限。
    - commit 纪律：对话中途可随手 commit 保存进度，但零散 commit 不逐个 push；push 前 squash 成按"完整一件事"组织的历史，一次性推送。
-   - PR 纪律：代理把改动推进到就绪状态后停下；建 PR 由人触发，不自行发起。
-   *验收*：PR 创建动作来自人的明确指令；分支相对 main 的历史呈现为完整一件事；当前分支是新分支且 PR 目标为 `main`。
+   - 合入纪律：单人开发默认**不开 PR**。代理把改动推进到本地就绪状态（测试/类型/构建全绿、工作区干净）后停下，交人验收；验收通过后由人明确指令 **merge & push `main`**。merge 动作本身仍须每次单独授权，不能从"上次说过可以"推断到下一次。
+   - 跨人协作例求：仓库一旦出现第二份提交、外部共同开发或对抗性审查需求，恢复走 PR 评审，本节须同步改回。
+   *验收*：合并与推送动作来自人的明确指令；分支相对 main 的历史呈现为完整一件事；当前分支是新分支；merge 前 `npm test`、`npx tsc --noEmit`、`npm run build` 均绿。
 
 ## 人类权威边界
 
@@ -96,6 +105,6 @@ npm run build           # 构建，涉构建的改动必须构建成功
 - `docs/before-push-checklist.md`：push 前三态检查清单。
 - `docs/code-standards.md`：工程规范与反面案例（DRY + 文档规范）。
 - `docs/agent-collab-metrics.md`：人机协作度量登记口径。
-- `docs/decisions/README.md`：决策记录的格式与存放约定（一个 PR 一篇）。
+- `docs/decisions/README.md`：决策记录的格式与存放约定（一批改动一篇）。
 - `docs/risks/README.md`：分域踩坑登记的格式约定。
 - `docs/archived/README.md`：退役内容归档规则。

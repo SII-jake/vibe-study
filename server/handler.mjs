@@ -1,20 +1,23 @@
 import { isConfigured } from './config.mjs'
 import { runAgentTurn, createSseParser } from './agent.mjs'
+import { createNodeStore, isValidNodesPayload } from './node-store.mjs'
 import {
   clearOldEntries,
   computeStreamKey,
   createStreamStore,
 } from './stream-store.mjs'
 import { generateTitle } from './title.mjs'
+import { apiNeedsAuth } from './auth.mjs'
 
 const MAX_BODY_BYTES = 1024 * 1024
 
-function sendJson(response, status, payload) {
+function sendJson(response, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload)
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    ...extraHeaders,
   })
   response.end(body)
 }
@@ -47,17 +50,64 @@ function resolveModel(config, requested) {
  * 生成请求处理器。
  * 密钥只在这里注入上游请求头，任何响应体都不回传密钥。
  *
- * opts.streamStore 仅供测试注入；生产默认新建一个。客户端断开不再连带
- * 中止生成：gen 跑完写入残迹，前端可按 streamKey 拉回完整回答。
+ * opts.streamStore / opts.nodeStore 仅供测试注入；生产默认各建一个。客户端断开
+ * 不再连带中止生成：gen 跑完写入残迹，前端可按 streamKey 拉回完整回答。
  */
 export function createHandler(config, fetchImpl = fetch, opts = {}) {
   const streamStore = opts.streamStore ?? createStreamStore()
+  const nodeStore = opts.nodeStore ?? createNodeStore()
+  /** 登录判定来自 config.auth —— 未配置口令时全部放行，与引入拦截前一致 */
+  const auth = opts.auth ?? config.auth
 
   return async function handler(request, response) {
     const url = new URL(request.url, 'http://localhost')
 
+    // 未登录的 API 一律 401 JSON，只放行 /api/auth（登录）与老壳 OTA 检查
+    if (apiNeedsAuth(request, auth, url.pathname)) {
+      sendJson(response, 401, { error: '未登录' })
+      return
+    }
+
     // 每次进来顺手清一次过窗残迹，陈旧记录不一直占着
     clearOldEntries(streamStore.entries, streamStore.ttlMs)
+
+    // 多设备同步：整棵问答树读口。X-Nodes-Version 头供前端低成本轮询感知远端更新。
+    if (request.method === 'GET' && url.pathname === '/api/nodes') {
+      sendJson(
+        response,
+        200,
+        { version: nodeStore.getVersion(), nodes: nodeStore.getNodes() },
+        { 'X-Nodes-Version': String(nodeStore.getVersion()) },
+      )
+      return
+    }
+
+    // 多设备同步：整棵问答树写口。乐观锁按 baseVersion 校验，冲突即拒绝并回最新数据。
+    if (request.method === 'PUT' && url.pathname === '/api/nodes') {
+      let payload
+      try {
+        payload = JSON.parse(await readBody(request))
+      } catch {
+        sendJson(response, 400, { error: '请求体不是合法 JSON' })
+        return
+      }
+      if (
+        !payload ||
+        !Number.isInteger(payload.baseVersion) ||
+        payload.baseVersion < 0 ||
+        !isValidNodesPayload(payload.nodes)
+      ) {
+        sendJson(response, 400, { error: '需要非负整数 baseVersion 与节点数组' })
+        return
+      }
+      const result = nodeStore.save(payload.nodes, payload.baseVersion)
+      if (!result.ok) {
+        sendJson(response, 409, { version: result.version, nodes: result.nodes })
+        return
+      }
+      sendJson(response, 200, { version: result.version })
+      return
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
       sendJson(response, 200, {

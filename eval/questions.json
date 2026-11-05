@@ -1,0 +1,38 @@
+[
+  {
+    "id": "concept-no-search",
+    "expectedToolUse": "none",
+    "text": "详细解释一下闭包（closure）的概念，以及在 JavaScript 里的常见用途和坑。",
+    "note": "静态概念，不该触发任何工具；优化容易为提速反而去搜，这条用来抓"
+  },
+  {
+    "id": "derivation-no-search",
+    "expectedToolUse": "none",
+    "text": "我有三个盒子，每个盒子标签都贴错了：一个装苹果，一个装橘子，一个混装。只能从一个盒子里摸一个水果，怎么推断出每个盒子装什么？详细推理过程。",
+    "note": "逻辑推导，不需要搜索"
+  },
+  {
+    "id": "fresh-search",
+    "expectedToolUse": "search+read",
+    "text": "2025 年诺贝尔物理学奖的得主是谁，因为什么成果获奖？帮我总结一下三项获奖成果各自解决了什么问题，并注明来源。",
+    "note": "时效 + 事实核查，必须搜索并读来源核对"
+  },
+  {
+    "id": "fresh-compare",
+    "expectedToolUse": "search",
+    "text": "对比 DeepSeek、通义千问、智谱 GLM 这三家 2025 年旗舰开源模型在代码能力基准（如 SWE-bench）上的表现，列出数据来源。",
+    "note": "多角度信息汇总，基准数字必须来自检索"
+  },
+  {
+    "id": "read-verify",
+    "expectedToolUse": "search+read",
+    "text": "HTTP/3 的核心是 QUIC。帮我搞清楚 QUIC 连接迁移（connection migration）的机制是怎么工作的，找一手资料核实细节，给出出处。",
+    "note": "需要读原始文档（RFC/规范）核对，纯摘要容易说错"
+  },
+  {
+    "id": "recent-event",
+    "expectedToolUse": "search",
+    "text": "WTT 中国大满贯 2025 的男单决赛是哪位选手对哪位？比分如何？帮我按时间顺序梳理这场决赛的局分变化。",
+    "note": "具体事实与时序，summary 容易漏，需要打开报道核实"
+  }
+]

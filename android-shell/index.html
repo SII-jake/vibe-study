@@ -75,16 +75,19 @@
       <div class="server" id="serverText"></div>
       <button id="enterBtn">进入</button>
       <button class="ghost" id="editBtn">修改服务器地址</button>
-      <p class="hint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
+      <p class="hint" id="autoHint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
+      <p class="hint" id="otaHint" role="status" style="display: none"></p>
     </div>
 
     <div class="card" id="editArea">
       <div>服务器地址</div>
       <input id="serverInput" type="url" inputmode="url" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+      <div style="margin-top:8px">访问口令</div>
+      <input id="passwordInput" type="password" autocomplete="off" placeholder="默认口令已内置；改过就填新口令，留空恢复默认" />
       <button id="saveBtn">保存并进入</button>
       <button class="ghost" id="cancelBtn">返回</button>
       <p class="error" id="errorText">地址无法识别，示例：https://study.sii.edu.cn 或 10.0.0.1:8787</p>
-      <p class="hint">地址只保存在这台手机本地；改服务器不用重新安装应用。</p>
+      <p class="hint">地址与口令只保存在这台手机本地；口令留空即恢复默认，改服务器或口令都不用重新安装应用。</p>
     </div>
 
     <script src="boot.js"></script>
@@ -92,10 +95,32 @@
       function byId(id) { return document.getElementById(id) }
       var autoTimer = null
 
+      /** 取消自动进入并收走倒计时提示：用户已主动选择留在此页。 */
+      function cancelAuto() {
+        stopAuto()
+        byId('autoHint').style.display = 'none'
+      }
+
+      /** 手动点「进入 / 保存并进入」或倒计时走完：先检查更新再决定是否放行。 */
+      function enterWithUpdateCheck(server) {
+        cancelAuto()
+        window.VibeBoot.checkAppUpdate(server).then(function (state) {
+          if (state.status === 'downloading' || state.status === 'need-permission') {
+            byId('otaHint').textContent = state.versionName
+              ? '发现新版本 ' + state.versionName + '，' + (state.status === 'need-permission' ? '请在系统设置里允许本应用安装未知来源包后重开应用。' : '更新包下载中，完成后请在弹出的安装界面点「安装」。')
+              : '更新包下载中，完成后请在弹出的安装界面点「安装」。'
+            byId('otaHint').style.display = 'block'
+            return
+          }
+          window.VibeBoot.enterApp(server)
+        })
+      }
+
       function showEnter(server) {
         byId('serverText').textContent = server
         byId('enterArea').style.display = 'block'
         byId('editArea').style.display = 'none'
+        byId('otaHint').style.display = 'none'
 
         var left = 2
         byId('countdown').textContent = String(left)
@@ -104,7 +129,7 @@
           if (left <= 0) {
             clearInterval(autoTimer)
             autoTimer = null
-            window.VibeBoot.enterApp(server)
+            enterWithUpdateCheck(server)
             return
           }
           byId('countdown').textContent = String(left)
@@ -118,14 +143,43 @@
         }
       }
 
+      /* Android 返回键：仅在系统壳内接线。编辑区返回 → 回进入区；
+         进入区倒计时中返回 → 取消自动进入只剩手动进入；否则退出应用。 */
+      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+        window.Capacitor.Plugins.App.addListener('backButton', function () {
+          var action = window.VibeBoot.resolveBootBack({
+            editing: byId('editArea').style.display === 'block',
+            autoCounting: autoTimer !== null,
+          })
+          if (action === 'cancel-edit') {
+            window.addEventListener('focus', function () {
+        // 从「安装未知应用」系统设置回到启动页：权限一开即自动复查，
+        // 本次检查到新版会直接拉起下载，不再等重启
+        if (byId('otaHint').style.display === 'block' && autoTimer === null) {
+          enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+        }
+      })
+
+      showEnter(window.VibeBoot.loadSavedServer())
+            return
+          }
+          if (action === 'cancel-countdown') {
+            cancelAuto()
+            return
+          }
+          window.Capacitor.Plugins.App.exitApp()
+        })
+      }
+
       byId('enterBtn').addEventListener('click', function () {
-        stopAuto()
-        window.VibeBoot.enterApp(window.VibeBoot.loadSavedServer())
+        enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
       })
 
       byId('editBtn').addEventListener('click', function () {
         stopAuto()
         byId('serverInput').value = window.VibeBoot.loadSavedServer()
+        byId('passwordInput').value = ''
+        byId('passwordInput').placeholder = '当前生效：' + window.VibeBoot.loadPassword()
         byId('errorText').style.display = 'none'
         byId('enterArea').style.display = 'none'
         byId('editArea').style.display = 'block'
@@ -142,7 +196,17 @@
           return
         }
         window.VibeBoot.saveServer(server)
-        window.VibeBoot.enterApp(server)
+        window.VibeBoot.savePassword(byId('passwordInput').value)
+        enterWithUpdateCheck(server)
+      })
+
+      /* 从「安装未知应用」系统设置回到启动页：权限一开即自动复查，
+         本次检查到新版会直接拉起下载，不再等重启。监听必须挂在顶层——
+         离开和回来都不必然经过返回键，挂进 backButton 处理器里可能永远不触发。 */
+      window.addEventListener('focus', function () {
+        if (byId('otaHint').style.display === 'block' && autoTimer === null) {
+          enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+        }
       })
 
       showEnter(window.VibeBoot.loadSavedServer())

@@ -17,7 +17,12 @@ function textNodesOf(root: HTMLElement): Text[] {
   return nodes
 }
 
-function wrapFirstMatch(root: HTMLElement, target: string, markClass: string): boolean {
+function wrapFirstMatch(
+  root: HTMLElement,
+  target: string,
+  markClass: string,
+  nodeId?: string,
+): boolean {
   const nodes = textNodesOf(root)
   const fullText = nodes.map((node) => node.data).join('')
   const range = locateRange(fullText, target)
@@ -51,6 +56,8 @@ function wrapFirstMatch(root: HTMLElement, target: string, markClass: string): b
   domRange.setEnd(endNode, endOffset)
   const mark = document.createElement('mark')
   mark.className = markClass
+  // 锚点文字可点击打开分支：节点 id 落在标记上，点击委托按它导航
+  if (nodeId) mark.dataset.nodeId = nodeId
   // 区间跨越行内元素时 surroundContents 会抛错，改为取出内容再整体包一层。
   mark.appendChild(domRange.extractContents())
   domRange.insertNode(mark)
@@ -73,6 +80,16 @@ export function highlightAnchorText(element: HTMLElement, target: string): boole
   const trimmed = target.trim()
   if (trimmed === '') return false
   return wrapFirstMatch(element, trimmed, ANCHOR_CLASS)
+}
+
+/**
+ * 与 highlightAnchorText 同动作，但把分支节点 id 带到标记上：
+ * 下划线文字因此可点击（点击即打开那条子对话，与点分支卡片同效）。
+ */
+export function highlightAnchorNode(element: HTMLElement, target: string, nodeId: string): boolean {
+  const trimmed = target.trim()
+  if (trimmed === '') return false
+  return wrapFirstMatch(element, trimmed, ANCHOR_CLASS, nodeId)
 }
 
 function clearMarks(root: HTMLElement, markClass: string): void {

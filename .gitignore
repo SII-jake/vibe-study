@@ -5,3 +5,7 @@ dist
 .DS_Store
 .shots
 server/.env
+eval/reports/
+*.jks
+android/keystore.properties
+server/data/

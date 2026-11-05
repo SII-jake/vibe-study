@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHandler } from '../server/handler.mjs'
 import { computeStreamKey } from '../server/stream-store.mjs'
-import { loadServerConfig, parseEnvFile } from '../server/config.mjs'
+import { loadServerConfig, parseEnvFile, withEnvSource } from '../server/config.mjs'
 
 const KEY = 'sk-test-secret-key'
 
@@ -62,6 +62,24 @@ describe('parseEnvFile', () => {
   })
 })
 
+describe('withEnvSource', () => {
+  it('环境变量已有 AI_API_KEY 时直接返回环境', () => {
+    const env = { AI_API_KEY: 'env-key' }
+    expect(withEnvSource(env, () => 'AI_API_KEY=file-key\n')).toBe(env)
+  })
+
+  it('环境没有 AI_API_KEY 时并入 .env 文件，环境变量优先', () => {
+    const env = { AI_MODEL: 'env-model' }
+    const result = withEnvSource(env, () => 'AI_API_KEY=file-key\nAI_MODEL=file-model\n')
+    expect(result).toEqual({ AI_API_KEY: 'file-key', AI_MODEL: 'env-model' })
+  })
+
+  it('.env 文件读不到时静默落回环境变量', () => {
+    const env = { AI_MODEL: 'env-model' }
+    expect(withEnvSource(env, () => { throw new Error('ENOENT') })).toBe(env)
+  })
+})
+
 describe('loadServerConfig', () => {
   it('从环境变量读取上游地址、密钥与模型', () => {
     const config = loadServerConfig({
@@ -79,6 +97,16 @@ describe('loadServerConfig', () => {
   it('模型白名单按逗号拆分', () => {
     const config = loadServerConfig({ AI_MODELS: 'a, b ,c' })
     expect(config.models).toEqual(['a', 'b', 'c'])
+  })
+
+  it('读取 DeepSeek 搜索服务的密钥与端点（缺省走官方地址）', () => {
+    expect(loadServerConfig({ DEEPSEEK_KEY: ' dk ' })).toMatchObject({
+      deepseekKey: 'dk',
+      deepseekBase: 'https://api.deepseek.com',
+    })
+    expect(loadServerConfig({ DEEPSEEK_BASE: 'https://proxy.internal/' })).toMatchObject({
+      deepseekBase: 'https://proxy.internal',
+    })
   })
 })
 
@@ -213,7 +241,7 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
           role: 'assistant',
           content: null,
           tool_calls: [
-            { id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"query":"复利 最新"}' } },
+            { id: 'call_9', type: 'function', function: { name: 'search', arguments: '{"queries":["复利 最新"]}' } },
           ],
         },
       },
@@ -221,12 +249,21 @@ describe('POST /api/chat（agent 模式，配置工具密钥后）', () => {
   }
 
   function agentFetch() {
-    const queue = [
-      () => jsonResponse(TOOL_CALL),
-      () => jsonResponse({ organic: [{ title: '结果一', link: 'https://a.com', snippet: '摘要' }] }),
-      () => jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '带引用的回答' } }] }),
-    ]
-    return vi.fn(async () => Promise.resolve(queue.shift()()))
+    let step = 0
+    return vi.fn(async (url) => {
+      const urlStr = String(url)
+      if (urlStr.includes('chat/completions')) {
+        step += 1
+        if (step === 1) return jsonResponse(TOOL_CALL)
+        return jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '带引用的回答' } }] })
+      }
+      // 打包 search：检索回条目后还会抓页面正文（jina），两类请求都要桩到
+      if (urlStr.includes('serper.dev')) {
+        return jsonResponse({ organic: [{ title: '结果一', link: 'https://a.com', snippet: '摘要' }] })
+      }
+      if (urlStr.includes('r.jina.ai')) return new Response('页面正文', { status: 200 })
+      throw new Error(`未知请求 ${urlStr}`)
+    })
   }
 
   function jsonResponse(payload, status = 200) {

@@ -43,12 +43,32 @@ export function loadServerConfig(source = process.env) {
     serperBase: stripSlash(source.SERPER_BASE ?? 'https://google.serper.dev'),
     jinaKey: (source.JINA_KEY ?? '').trim(),
     jinaBase: stripSlash(source.JINA_BASE ?? 'https://r.jina.ai'),
+    /** DeepSeek 搜索服务（直连 api.deepseek.com 的 /v1/tools/*），配置后替代 serper+jina。 */
+    deepseekKey: (source.DEEPSEEK_KEY ?? '').trim(),
+    deepseekBase: stripSlash(source.DEEPSEEK_BASE ?? 'https://api.deepseek.com'),
     /** 单次上游请求的超时上限（ms）。模型冷启会慢，但挂起的请求不能无限等。 */
     llmTimeoutMs: parseTimeoutMs(source.LLM_TIMEOUT_MS),
+    auth: {
+      /** 口令为空 = 登录门卫关闭（内网自用）；配置后全站与 API 一律登录后才能访问。 */
+      enabled: (source.ACCESS_PASSWORD ?? '').trim() !== '',
+      password: (source.ACCESS_PASSWORD ?? '').trim(),
+      cookie: (source.AUTH_COOKIE ?? 'vibe_auth').trim() || 'vibe_auth',
+      ttlDays: parseTtlDays(source.AUTH_TTL_DAYS),
+      secure: (source.AUTH_SECURE ?? 'true').trim().toLowerCase() !== 'false',
+    },
   }
 }
 
 const DEFAULT_LLM_TIMEOUT_MS = 60_000
+const DEFAULT_AUTH_TTL_DAYS = 30
+
+/** 会话有效天数：缺省 30 天；非法输入一律落回默认，登录态不该因手滑变短。 */
+function parseTtlDays(raw) {
+  if (raw === undefined || raw === '') return DEFAULT_AUTH_TTL_DAYS
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_AUTH_TTL_DAYS
+  return Math.round(value)
+}
 
 /** 合法的正值毫秒数就采用；缺省或非法输入一律落回默认，不静默变体。 */
 function parseTimeoutMs(raw) {
@@ -61,6 +81,21 @@ function parseTimeoutMs(raw) {
 /** 工具端点只去尾斜杠，不做版本补齐。 */
 export function stripSlash(input) {
   return (input ?? '').trim().replace(/\/+$/, '')
+}
+
+/**
+ * 服务端配置来源：优先读进程环境；没有 AI_API_KEY 时去读 server/.env。
+ * readFileImpl 读不到文件（不存在）时静默落回环境变量，与过去内联在
+ * index.mjs 的行为一致；评测 CLI 与启动入口共用这一份判断，不复制。
+ */
+export function withEnvSource(env = process.env, readFileImpl) {
+  if (env.AI_API_KEY) return env
+  try {
+    const parsed = parseEnvFile(String(readFileImpl()))
+    return { ...parsed, ...env }
+  } catch {
+    return env
+  }
 }
 
 export function isConfigured(config) {
