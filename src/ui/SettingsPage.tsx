@@ -1,5 +1,12 @@
+import { useState } from 'react'
 import type { ServerHealth } from '../ai/health'
 import { loadModelPreference, saveModelPreference } from '../ai/preferences'
+import {
+  checkInstalledAppUpdate,
+  currentVersionLabel,
+  hasUpdateBridge,
+  type AppUpdateResult,
+} from './app-update-check'
 
 export interface SettingsPageProps {
   health: ServerHealth
@@ -7,10 +14,36 @@ export interface SettingsPageProps {
   onBack(): void
 }
 
+/** 更新检查结果翻译成用户可见文案；每种状态都要有落地文案，不许静默。 */
+function updateStatusText(result: AppUpdateResult): string {
+  switch (result.kind) {
+    case 'no-update':
+      return '服务器尚未发布安装包。'
+    case 'up-to-date':
+      return `已是最新版本（${result.current}）。`
+    case 'need-permission':
+      return `发现新版本 ${result.versionName}，已打开系统设置：请允许本应用安装未知来源应用后回来重试。`
+    case 'downloading':
+      return `发现新版本 ${result.versionName}，更新包下载中，完成后请在弹出的安装界面点「安装」。`
+    case 'failed':
+      return result.reason === 'no-bridge'
+        ? '当前不在 Android 应用内，无法检查应用更新。'
+        : `检查更新失败：${result.reason}`
+  }
+}
+
 /** 设置页只展示服务端能力并选择模型；密钥由服务端保管，浏览器无从访问。 */
 export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPageProps) {
   const preferred = loadModelPreference()
   const choices = health.models.length > 0 ? health.models : health.model ? [health.model] : []
+  const [update, setUpdate] = useState<
+    { phase: 'idle' } | { phase: 'checking' } | { phase: 'done'; result: AppUpdateResult }
+  >({ phase: 'idle' })
+
+  const runUpdateCheck = () => {
+    setUpdate({ phase: 'checking' })
+    void checkInstalledAppUpdate().then((result) => setUpdate({ phase: 'done', result }))
+  }
 
   return (
     <div className="page">
@@ -58,6 +91,24 @@ export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPagePr
         <p className="hint">
           改上游地址或密钥需要编辑服务端的 server/.env，改完重启服务进程生效。
         </p>
+
+        {hasUpdateBridge() && (
+          <div className="field">
+            <span>应用更新</span>
+            <div className="status-row">
+              <span>当前版本 {currentVersionLabel()}</span>
+              <button
+                type="button"
+                className="btn-ghost status-refresh"
+                disabled={update.phase === 'checking'}
+                onClick={runUpdateCheck}
+              >
+                {update.phase === 'checking' ? '检查中…' : '检查更新'}
+              </button>
+            </div>
+            {update.phase === 'done' && <p className="hint update-status">{updateStatusText(update.result)}</p>}
+          </div>
+        )}
       </div>
     </div>
   )

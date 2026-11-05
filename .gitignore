@@ -6,3 +6,5 @@ dist
 .shots
 server/.env
 eval/reports/
+*.jks
+android/keystore.properties

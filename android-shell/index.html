@@ -76,6 +76,7 @@
       <button id="enterBtn">进入</button>
       <button class="ghost" id="editBtn">修改服务器地址</button>
       <p class="hint" id="autoHint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
+      <p class="hint" id="otaHint" role="status" style="display: none"></p>
     </div>
 
     <div class="card" id="editArea">
@@ -92,10 +93,32 @@
       function byId(id) { return document.getElementById(id) }
       var autoTimer = null
 
+      /** 取消自动进入并收走倒计时提示：用户已主动选择留在此页。 */
+      function cancelAuto() {
+        stopAuto()
+        byId('autoHint').style.display = 'none'
+      }
+
+      /** 手动点「进入 / 保存并进入」或倒计时走完：先检查更新再决定是否放行。 */
+      function enterWithUpdateCheck(server) {
+        cancelAuto()
+        window.VibeBoot.checkAppUpdate(server).then(function (state) {
+          if (state.status === 'downloading' || state.status === 'need-permission') {
+            byId('otaHint').textContent = state.versionName
+              ? '发现新版本 ' + state.versionName + '，' + (state.status === 'need-permission' ? '请在系统设置里允许本应用安装未知来源包后重开应用。' : '更新包下载中，完成后请在弹出的安装界面点「安装」。')
+              : '更新包下载中，完成后请在弹出的安装界面点「安装」。'
+            byId('otaHint').style.display = 'block'
+            return
+          }
+          window.VibeBoot.enterApp(server)
+        })
+      }
+
       function showEnter(server) {
         byId('serverText').textContent = server
         byId('enterArea').style.display = 'block'
         byId('editArea').style.display = 'none'
+        byId('otaHint').style.display = 'none'
 
         var left = 2
         byId('countdown').textContent = String(left)
@@ -104,7 +127,7 @@
           if (left <= 0) {
             clearInterval(autoTimer)
             autoTimer = null
-            window.VibeBoot.enterApp(server)
+            enterWithUpdateCheck(server)
             return
           }
           byId('countdown').textContent = String(left)
@@ -116,12 +139,6 @@
           clearInterval(autoTimer)
           autoTimer = null
         }
-      }
-
-      /** 取消自动进入并收走倒计时提示：用户已主动选择留在此页。 */
-      function cancelAuto() {
-        stopAuto()
-        byId('autoHint').style.display = 'none'
       }
 
       /* Android 返回键：仅在系统壳内接线。编辑区返回 → 回进入区；
@@ -145,8 +162,7 @@
       }
 
       byId('enterBtn').addEventListener('click', function () {
-        cancelAuto()
-        window.VibeBoot.enterApp(window.VibeBoot.loadSavedServer())
+        enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
       })
 
       byId('editBtn').addEventListener('click', function () {
@@ -168,7 +184,16 @@
           return
         }
         window.VibeBoot.saveServer(server)
-        window.VibeBoot.enterApp(server)
+        enterWithUpdateCheck(server)
+      })
+
+      /* 从「安装未知应用」系统设置回到启动页：权限一开即自动复查，
+         本次检查到新版会直接拉起下载，不再等重启。监听必须挂在顶层——
+         离开和回来都不必然经过返回键，挂进 backButton 处理器里可能永远不触发。 */
+      window.addEventListener('focus', function () {
+        if (byId('otaHint').style.display === 'block' && autoTimer === null) {
+          enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+        }
       })
 
       showEnter(window.VibeBoot.loadSavedServer())
