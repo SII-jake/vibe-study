@@ -7,6 +7,7 @@ import {
   createStreamStore,
 } from './stream-store.mjs'
 import { generateTitle } from './title.mjs'
+import { apiNeedsAuth } from './auth.mjs'
 
 const MAX_BODY_BYTES = 1024 * 1024
 
@@ -55,9 +56,17 @@ function resolveModel(config, requested) {
 export function createHandler(config, fetchImpl = fetch, opts = {}) {
   const streamStore = opts.streamStore ?? createStreamStore()
   const nodeStore = opts.nodeStore ?? createNodeStore()
+  /** 登录判定来自 config.auth —— 未配置口令时全部放行，与引入拦截前一致 */
+  const auth = opts.auth ?? config.auth
 
   return async function handler(request, response) {
     const url = new URL(request.url, 'http://localhost')
+
+    // 未登录的 API 一律 401 JSON，只放行 /api/auth（登录）与老壳 OTA 检查
+    if (apiNeedsAuth(request, auth, url.pathname)) {
+      sendJson(response, 401, { error: '未登录' })
+      return
+    }
 
     // 每次进来顺手清一次过窗残迹，陈旧记录不一直占着
     clearOldEntries(streamStore.entries, streamStore.ttlMs)

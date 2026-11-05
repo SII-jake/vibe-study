@@ -82,10 +82,12 @@
     <div class="card" id="editArea">
       <div>服务器地址</div>
       <input id="serverInput" type="url" inputmode="url" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+      <div style="margin-top:8px">访问口令</div>
+      <input id="passwordInput" type="password" autocomplete="off" placeholder="默认口令已内置；改过就填新口令，留空恢复默认" />
       <button id="saveBtn">保存并进入</button>
       <button class="ghost" id="cancelBtn">返回</button>
       <p class="error" id="errorText">地址无法识别，示例：https://study.sii.edu.cn 或 10.0.0.1:8787</p>
-      <p class="hint">地址只保存在这台手机本地；改服务器不用重新安装应用。</p>
+      <p class="hint">地址与口令只保存在这台手机本地；口令留空即恢复默认，改服务器或口令都不用重新安装应用。</p>
     </div>
 
     <script src="boot.js"></script>
@@ -168,6 +170,8 @@
       byId('editBtn').addEventListener('click', function () {
         stopAuto()
         byId('serverInput').value = window.VibeBoot.loadSavedServer()
+        byId('passwordInput').value = ''
+        byId('passwordInput').placeholder = '当前生效：' + window.VibeBoot.loadPassword()
         byId('errorText').style.display = 'none'
         byId('enterArea').style.display = 'none'
         byId('editArea').style.display = 'block'
@@ -184,6 +188,7 @@
           return
         }
         window.VibeBoot.saveServer(server)
+        window.VibeBoot.savePassword(byId('passwordInput').value)
         enterWithUpdateCheck(server)
       })
 

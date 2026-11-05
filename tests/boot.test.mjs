@@ -49,7 +49,7 @@ describe('normalizeServerUrl', () => {
 
 describe('loadSavedServer / saveServer', () => {
   it('未保存时回落到默认地址', () => {
-      expect(window.VibeBoot.loadSavedServer()).toBe('https://digital-gene.sii.edu.cn')
+      expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
   })
 
   it('保存后再读取返回保存值', () => {
@@ -59,27 +59,63 @@ describe('loadSavedServer / saveServer', () => {
 
   it('保存的值损坏时回落到默认地址', () => {
     window.localStorage.setItem('vibe-study.server-url', '::::')
-      expect(window.VibeBoot.loadSavedServer()).toBe('https://digital-gene.sii.edu.cn')
+      expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
   })
 })
 
-describe('resolveBootBack', () => {
-  it('编辑区打开时按返回：回进入区，不退出、不进入', () => {
-    expect(window.VibeBoot.resolveBootBack({ editing: true, autoCounting: false })).toBe(
-      'cancel-edit',
-    )
-    expect(window.VibeBoot.resolveBootBack({ editing: true, autoCounting: true })).toBe(
-      'cancel-edit',
-    )
+describe('访问口令', () => {
+  it('未设置时回落到硬编码默认口令', () => {
+    expect(window.VibeBoot.loadPassword()).toBe(window.VibeBoot.DEFAULT_PASSWORD)
+    expect(window.VibeBoot.DEFAULT_PASSWORD.length).toBeGreaterThan(0)
   })
 
-  it('进入区倒计时进行中按返回：取消自动进入，留在当前页', () => {
-    expect(window.VibeBoot.resolveBootBack({ editing: false, autoCounting: true })).toBe(
-      'cancel-countdown',
-    )
+  it('保存自定义口令后读取返回保存值', () => {
+    window.VibeBoot.savePassword('my-own-pass')
+    expect(window.VibeBoot.loadPassword()).toBe('my-own-pass')
   })
 
-  it('进入区且无倒计时（已手动取消过）：退出应用', () => {
-    expect(window.VibeBoot.resolveBootBack({ editing: false, autoCounting: false })).toBe('exit')
+  it('保存空串等于清除，回落到默认口令', () => {
+    window.VibeBoot.savePassword('my-own-pass')
+    window.VibeBoot.savePassword('')
+    expect(window.VibeBoot.loadPassword()).toBe(window.VibeBoot.DEFAULT_PASSWORD)
+  })
+})
+
+describe('enterApp 自动登录', () => {
+  it('以表单 POST 向服务器 /api/auth 提交口令，成功后落进应用', () => {
+    const oldSubmit = window.HTMLFormElement.prototype.submit
+    let submitted = null
+    window.HTMLFormElement.prototype.submit = function () {
+      submitted = this
+    }
+    try {
+      window.VibeBoot.savePassword('saved-pass')
+      window.VibeBoot.enterApp('http://210.45.88.175:8787')
+      expect(submitted).not.toBeNull()
+      expect(submitted.method.toLowerCase()).toBe('post')
+      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
+      const field = submitted.querySelector('input[name="password"]')
+      expect(field).not.toBeNull()
+      expect(field.value).toBe('saved-pass')
+    } finally {
+      window.HTMLFormElement.prototype.submit = oldSubmit
+    }
+  })
+
+  it('未改过口令时提交默认口令', () => {
+    const oldSubmit = window.HTMLFormElement.prototype.submit
+    let submitted = null
+    window.HTMLFormElement.prototype.submit = function () {
+      submitted = this
+    }
+    try {
+      window.VibeBoot.enterApp('http://210.45.88.175:8787')
+      expect(submitted.querySelector('input[name="password"]').value).toBe(
+        window.VibeBoot.DEFAULT_PASSWORD,
+      )
+      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
+    } finally {
+      window.HTMLFormElement.prototype.submit = oldSubmit
+    }
   })
 })
