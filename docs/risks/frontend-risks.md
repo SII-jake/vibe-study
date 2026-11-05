@@ -2,6 +2,18 @@
 
 新条目加在本节最上方。
 
+## spawn 的后台 job 不 disown：脚本等价物是 do_wait 挂死、下游 pipe 永远等不到 EOF
+
+- 症状：`bash scripts/release.sh 2>&1 | tail -N` 形态调用发布脚本时，脚本已完成
+  全部工作（服务都健康了）但进程不退出，`tail` 也永远收不到输出。
+- 根因：`(... setsid nohup node ... &)` 只解决了进程组/会话脱离，没解决两件事——
+  ①bash 仍把后台 job 记在 job 表里，退出前 `do_wait` 等它；②node 继承脚本 stdout
+  的 pipe fd，下游 `tail` 的生产者半数在 node 手里，EOF 永远不来。
+- 做法：三条同时做到才算真的脱离——`setsid`（脱离会话）+ `disown`（出 job 表，
+  bash 不再 wait）+ `</dev/null`（stdin 不接上游 fd）；stdout/stderr 必须显式重定向
+  到日志文件，别让下游 pipe 被 spawn 的目标继承。隔离验证方式：用另一个端口模拟
+  `bash x.sh | head -5`，head 能及时打满、脚本立即退出才算修到位。
+
 ## bash 包装脚本里 spawn 常驻进程：`$!` 拿到的可能是包装壳而非目标进程
 
 - 症状：发布脚本 `(setsid nohup node server/index.mjs >> log 2>&1 & echo $! > pid)` 后，
