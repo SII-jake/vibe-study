@@ -39,6 +39,22 @@ export function hasUpdateBridge(): boolean {
   return bridge() !== null
 }
 
+/**
+ * 拉服务端版本号（与壳版本并列的第二口径：发布脚本每次自增，服务前进可见）。
+ * 200/404 均可能携带 serverVersion；网络失败或字段缺失回 null（调用方弱提示）。
+ */
+export async function fetchServerVersion(): Promise<string | null> {
+  try {
+    const response = await fetch(`${window.location.origin}/api/app-version`)
+    const payload = (await response.json()) as { serverVersion?: unknown }
+    return typeof payload.serverVersion === 'string' && payload.serverVersion !== ''
+      ? payload.serverVersion
+      : null
+  } catch {
+    return null
+  }
+}
+
 /** 当前安装版本给用户看的标签：优先 versionName，老壳没有该方法时退到 code。 */
 export function currentVersionLabel(): string {
   const active = bridge()

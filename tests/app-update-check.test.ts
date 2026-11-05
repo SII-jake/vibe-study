@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   checkInstalledAppUpdate,
   currentVersionLabel,
+  fetchServerVersion,
   hasUpdateBridge,
 } from '../src/ui/app-update-check'
 
@@ -36,6 +37,38 @@ const published = {
 const okResponse = (payload: unknown) =>
   Promise.resolve({ ok: true, json: () => Promise.resolve(payload) } as Response)
 const notFound = () => Promise.resolve({ ok: false, status: 404 } as Response)
+
+describe('fetchServerVersion', () => {
+  // 服务端版本是与壳版本并列的第二口径：壳没发新版时也能看见服务在前进
+  it('200 且带 serverVersion 时返回版本字符串', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okResponse({ ...published, serverVersion: '1.1.0.7' })),
+    )
+    expect(await fetchServerVersion()).toBe('1.1.0.7')
+  })
+
+  it('404 也照样读 serverVersion（纯前端发布，无 APK 不等于无版本）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: 'no apk published', serverVersion: '1.1.0.9' }),
+        } as Response),
+      ),
+    )
+    expect(await fetchServerVersion()).toBe('1.1.0.9')
+  })
+
+  it('网络失败或字段缺失时回 null', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+    expect(await fetchServerVersion()).toBeNull()
+    vi.stubGlobal('fetch', vi.fn(() => okResponse(published)))
+    expect(await fetchServerVersion()).toBeNull()
+  })
+})
 
 beforeEach(() => {
   window.localStorage.clear()

@@ -1,5 +1,7 @@
 // /api/app-version：壳内检查更新的唯一口径 —— 服务器上发布了哪个 APK。
 // 数据归服务器自己的 static 目录（dist/app/），壳不读仓库、不猜默认值。
+// 双版本口径：versionName 是壳版本，serverVersion 是服务端部署版本
+// （发布脚本每次自增，读 dist/server-version.json，缺失时回壳版本兜底）。
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
@@ -78,6 +80,32 @@ describe('GET /api/app-version', () => {
     expect(body.apkName).toBe(APK_NAME)
     expect(body.sha256).toBe(APK_SHA)
     expect(body.versionCode).toBeGreaterThanOrEqual(1)
+  })
+
+  it('dist/server-version.json 存在时 serverVersion 读它', async () => {
+    await writeFile(join(root, 'server-version.json'), JSON.stringify({ version: '1.2.0.7' }))
+    const { status, body } = await fetchVersion()
+    expect(status).toBe(200)
+    expect(body.serverVersion).toBe('1.2.0.7')
+    await rm(join(root, 'server-version.json'), { force: true })
+  })
+
+  it('缺 server-version.json 时 serverVersion 回退壳版本', async () => {
+    const { body } = await fetchVersion()
+    expect(body.serverVersion).toBe('1.2.0')
+  })
+
+  it('无 APK（纯前端发布）也回 serverVersion，不 404 装死', async () => {
+    await rm(join(root, 'app'), { recursive: true, force: true })
+    await writeFile(join(root, 'server-version.json'), JSON.stringify({ version: '1.2.0.9' }))
+    // fetchVersion helper 对非 ok 不给 body，这里要验证的正是 404 响应里的字段，自行解析
+    const response = await fetch(`${base}/api/app-version`)
+    const body = await response.json()
+    const status = response.status
+    expect(status).toBe(404)
+    expect(body.serverVersion).toBe('1.2.0.9')
+    await rm(join(root, 'server-version.json'), { force: true })
+    await publishApk()
   })
 
   it('不带版本号的 APK 文件名按 versionName 0.0.0 兜底', async () => {
