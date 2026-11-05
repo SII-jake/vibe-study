@@ -2,6 +2,21 @@
 
 新条目加在本节最上方。
 
+## spawn 常驻进程的唯一定论：setsid -f；`&`+disown 与 `(... &)` 都被实测抓到过卡死
+
+- 症状：发布脚本工作全部完成（服务已健康）却挂在 do_wait 不退出，下游
+  `bash release.sh | tail` 永远收不到输出。
+- 根因：bash 对后台 job 的归属处理在 `(... &)`（子 shell 拍平）与 `& disown`
+  （jobs 表摘除）两种写法下都仍可能把 spawn 的目标算到脚本子进程头上，
+  退出前 wait 它；加之 node 继承脚本 stdout 的 pipe，下游 EOF 永远不来。
+  最小复现曾给出互相矛盾的结果——bash 内部机理不值得纠缠。
+- 做法：spawn 常驻进程只用一个定式：
+  `setsid -f nohup <cmd> >>log 2>&1 </dev/null`，
+  不加 `&`、不包子壳、不用 `$!`（PID 靠监听端口/cwd/cmdline 反查）。
+  `-f` 强制 setsid 自身 fork 后立刻退出，目标进程从第一秒就与调用方零
+  wait 关系；三向重定向到位（stdin 必须 /dev/null，std out/err 指日志文件），
+  下游 pipe 形态（`| tail`/`| head`）下验证脚本正常退出才算合格。
+
 ## spawn 的后台 job 不 disown：脚本等价物是 do_wait 挂死、下游 pipe 永远等不到 EOF
 
 - 症状：`bash scripts/release.sh 2>&1 | tail -N` 形态调用发布脚本时，脚本已完成

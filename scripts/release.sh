@@ -93,11 +93,12 @@ fi
 
 # setsid + nohup：新后端脱离本脚本的进程组与会话，脚本/agent 退出后服务仍存活；
 # 日志沿用 /tmp/study-api.log 追加，与原有人工起服务的习惯一致。
-# 两条实测教训（均已登记 docs/risks/frontend-risks.md）：
+# 三条实测教训（均已登记 docs/risks/frontend-risks.md）：
 # 1) 不能先 spawn 再用 $! 抓 PID——bash 嵌套包装会让 $! 指到包装 shell 而不是 node。
-# 2) 后台 job 必须 disown 且 stdin 接 /dev/null——否则脚本挂在 do_wait 等 node、
+# 2) `&` + disown 形态仍被实测抓到脚本卡 do_wait（node 被算成脚本子进程）——
+#    改用 setsid -f：强制 fork，setsid 自身立即退出，node 与脚本零 wait 关系。
 #    node 继承脚本 stdout 的 pipe（如 `bash release.sh | tail`）让下游永远等不到 EOF。
-(cd "$REPO_ROOT" && setsid nohup node server/index.mjs >> "$SERVER_LOG" 2>&1 < /dev/null & disown)
+(cd "$REPO_ROOT" && setsid -f nohup node server/index.mjs >> "$SERVER_LOG" 2>&1 < /dev/null)
 sleep 1
 NEW_PID="$(find_server_pid || true)"
 [ -n "$NEW_PID" ] || die "新后端 spawn 后按身份匹配找不到进程（未起来？日志见 $SERVER_LOG）"
