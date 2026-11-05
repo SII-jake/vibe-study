@@ -123,6 +123,15 @@ export function App() {
     window.localStorage.setItem('sidebar-collapsed', '0')
   }, [])
 
+  /** 窄屏从侧栏进设置：与选会话同口径——导航完收起遮罩，回到正文 */
+  const openSettings = useCallback(() => {
+    navigate({ kind: 'settings' })
+    if (isNarrow) {
+      setSidebarCollapsed(true)
+      window.localStorage.setItem('sidebar-collapsed', '1')
+    }
+  }, [navigate, isNarrow])
+
   // 换节点/换页面时收起右栏，避免问题挂到别的节点上；下潜时则按预定安排还原右栏。
   // 这里不消费 diveRef，StrictMode 下重复执行也得到同一结果。
   useEffect(() => {
@@ -255,7 +264,7 @@ export function App() {
       activeRootId={activeRootId}
       onOpen={openNode}
       onNewSession={() => navigate({ kind: 'topics' })}
-      onOpenSettings={() => navigate({ kind: 'settings' })}
+      onOpenSettings={openSettings}
     />
   )
 

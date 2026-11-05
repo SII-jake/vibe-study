@@ -87,4 +87,25 @@ describe('SessionList', () => {
     expect(activatable, '标题应包在 button 里').not.toBeNull()
     expect(activatable!.textContent).toContain('vibe study')
   })
+
+  it('点设置按钮回调 onOpenSettings；图标为齿轮 SVG（不用 ⚙ 文本字符）', () => {
+    const onOpenSettings = vi.fn()
+    act(() =>
+      root.render(
+        <SessionList
+          data={makeData([topic])}
+          activeRootId={null}
+          onOpen={() => {}}
+          onNewSession={() => {}}
+          onOpenSettings={onOpenSettings}
+        />,
+      ),
+    )
+    const btn = container.querySelector('[aria-label="设置"]') as HTMLButtonElement
+    act(() => btn.click())
+    expect(onOpenSettings).toHaveBeenCalledOnce()
+    // 用户反馈：⚙ 字符样式简陋——内联 SVG 齿轮，跨端渲染一致
+    expect(btn.querySelector('svg')).not.toBeNull()
+    expect(btn.textContent).not.toContain('⚙')
+  })
 })
