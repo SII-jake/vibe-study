@@ -28,6 +28,7 @@ test -d node_modules && echo ok      # 环境就绪检查：依赖已安装（np
 - **只 bump `android/app/build.gradle` 的 `versionName`**（如 1.0.0 → 1.0.1）；`versionCode` 由它自动推导，服务器 `versionCodeOf` 同一算法，禁止两处各说各话。
 - 有原生改动（`android/` 下 Java/Manifest/gradle）必须 bump；纯前端/sites 改动不用。
 - bump 后跑 `bash scripts/publish-apk.sh` 构建并发布到 `dist/app/`；服务器部署会带上这个目录，壳内检查更新自然生效。签名用 `android/app/keystore/` 的 release keystore（本地持有、不进 git、同一指纹贯穿所有版本）。
+- **一键发布入口：`bash scripts/release.sh`**——人说"发布"就跑它：质量门（单测）→ 前端构建 → 打包 APK（复用 publish-apk.sh）→ 精确重启后端（127.0.0.1:8787，只杀 cwd 与命令行都匹配本仓库的那个进程，不匹配拒绝动手）→ 健康检查（`/api/app-version` 须回 build.gradle 的 versionName）。该脚本不自动 bump versionName；bump 由人先改好再发布。
 
 ## 常用命令
 
@@ -43,6 +44,7 @@ npm run build           # 构建，涉构建的改动必须构建成功
 已知风险：
 
 - 以上命令均为标准 Node/TypeScript 工具链的本地命令，无后台调度、写库、对外调用类副作用。
+- `bash scripts/release.sh` 例外专条：它**会**杀掉本仓库在 8787 的后端进程并重启（有 10–60s 服务窗口），会写 `dist/`、`/tmp/study-api.log`，gradle 会走网络拉依赖。只允许在用户明确说"发布"时执行。
 
 ## 铁律（违反即返工）
 
