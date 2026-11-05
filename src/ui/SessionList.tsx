@@ -43,7 +43,14 @@ export function SessionList({
           </button>
         </h1>
         <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="设置">
-          ⚙
+          {/*
+           * 内联 SVG 齿轮：⚙ 字符依赖系统字体，Android 上细瘦易变体；
+           * 8 齿 path 齿轮跨端渲染一致，视觉更饱满。
+           */}
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5 5l1.9 1.9M17.1 17.1L19 19M5 19l1.9-1.9M17.1 6.9L19 5" />
+          </svg>
         </button>
       </header>
 
