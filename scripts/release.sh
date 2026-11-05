@@ -82,9 +82,14 @@ else
 fi
 
 # setsid + nohup：新后端脱离本脚本的进程组与会话，脚本/agent 退出后服务仍存活；
-# 日志沿用 /tmp/study-api.log 追加，与原有人工起服务的习惯一致
-(cd "$REPO_ROOT" && setsid nohup node server/index.mjs >> "$SERVER_LOG" 2>&1 & echo $! > /tmp/study-api.pid)
-NEW_PID="$(cat /tmp/study-api.pid)"
+# 日志沿用 /tmp/study-api.log 追加，与原有人工起服务的习惯一致。
+# 教训：不能先 spawn 再用 $! 抓 PID——bash 嵌套包装会让 $! 指到包装 shell 而不是
+# node（spawn 行实测踩过：$! 拿到 bash scripts/release.sh，真正 node 是它的子进程，
+# 脚本还因此卡住不退出）。改为先 spawn、再从既有 find_server_pid 反查真实 PID。
+(cd "$REPO_ROOT" && setsid nohup node server/index.mjs >> "$SERVER_LOG" 2>&1 &)
+sleep 1
+NEW_PID="$(find_server_pid || true)"
+[ -n "$NEW_PID" ] || die "新后端 spawn 后按身份匹配找不到进程（未起来？日志见 $SERVER_LOG）"
 echo "新后端 PID=$NEW_PID（日志 $SERVER_LOG）"
 
 step "6/6 健康检查（最多等 15s）"

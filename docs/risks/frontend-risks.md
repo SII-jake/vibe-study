@@ -2,6 +2,18 @@
 
 新条目加在本节最上方。
 
+## bash 包装脚本里 spawn 常驻进程：`$!` 拿到的可能是包装壳而非目标进程
+
+- 症状：发布脚本 `(setsid nohup node server/index.mjs >> log 2>&1 & echo $! > pid)` 后，
+  报告的"新后端 PID"是 `bash scripts/release.sh` 自己，真正 node 是它的子进程；
+  脚本进程还因此卡住不退出。
+- 根因：`bash <脚本>` 嵌套调用时，bash 为后台作业建包装子 shell，`$!` 取到的是作业
+  的包装 PID；包装壳持有`目标进程后才 exec，exec 前 PID 被包装占用。
+- 做法：spawn 常驻进程后不认 `$!`，按身份特征反查（监听端口 ∧ cwd=本仓库 ∧
+  cmdline 前缀匹配，与 `scripts/release.sh` 的 `find_server_pid` 同一段）；
+  反查不到宁可报错退出，不许拿错 PID 去杀或上报。spawn 行的尾括号写法
+  `( ... & )` 也能避免包装壳残留。
+
 ## jsdom 没有布局引擎，布局回归在单元测试层不可见
 
 - 症状：左栏收起后中右栏整片消失（`app-main` 实际宽 0），vitest 全绿。
