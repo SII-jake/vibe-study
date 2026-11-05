@@ -69,11 +69,41 @@ describe('SettingsPage 应用更新区块', () => {
     ;(window as { VibeAppUpdate?: unknown }).VibeAppUpdate = fakeBridge({ versionCode: 1001000 })
     vi.stubGlobal('fetch', vi.fn(() => okResponse(published)))
     await renderPage()
-    expect(container.textContent).toContain('当前版本 1.0.0')
+    // 双行改版后的文案：应用版本（壳）与服务端版本并列，「当前版本」不再使用
+    expect(container.textContent).toContain('应用版本 1.0.0')
     await act(async () => {
       updateButton()?.click()
     })
     expect(updateText()).toContain('已是最新版本')
+  })
+
+  it('壳内双行展示：应用版本 + 服务端版本', async () => {
+    ;(window as { VibeAppUpdate?: unknown }).VibeAppUpdate = fakeBridge({ versionCode: 1001000 })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okResponse({ ...published, serverVersion: '1.1.0.3' })),
+    )
+    await renderPage()
+    expect(container.textContent).toContain('应用版本 1.0.0')
+    // 服务端版本拉取完成后出现
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain('服务端版本 1.1.0.3')
+  })
+
+  it('无桥浏览器也展示服务端版本行', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => okResponse({ ...published, serverVersion: '1.1.0.5' })),
+    )
+    await renderPage()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain('服务端版本 1.1.0.5')
+    // 无桥时不出现应用版本/更新入口
+    expect(container.textContent).not.toContain('应用版本')
   })
 
   it('服务器未发布 APK：提示未发布，不冒充已是最新', async () => {

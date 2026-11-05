@@ -74,13 +74,32 @@ export function createAppVersionHandler(distRoot) {
       response.end('方法不被允许')
       return
     }
+    // 服务端版本：dist/server-version.json（发布脚本每次自增）；
+    // 老部署无此文件时回退壳版本（info 取不到就用 0.0.0 兜底），口径不双轨。
     const info = await readPublishedApk(distRoot)
+    const serverVersion = await readServerVersion(distRoot, info?.versionName ?? '0.0.0')
     if (!info) {
+      // 纯前端发布（无新 APK）也要报服务端版本：它是与壳版本并列的第二口径，
+      // 设置页据此让用户看见「服务在前进」，不能用 404 一体装死。
       response.writeHead(404, headers)
-      response.end(JSON.stringify({ error: 'no apk published' }))
+      response.end(JSON.stringify({ error: 'no apk published', serverVersion }))
       return
     }
     response.writeHead(200, headers)
-    response.end(JSON.stringify(info))
+    response.end(JSON.stringify({ ...info, serverVersion }))
+  }
+}
+
+/**
+ * 从 dist/server-version.json 读服务端版本（发布脚本每次自增）。
+ * 老部署尚无该文件：回退 fallback（调用方传壳版本），新旧口径无缝衔接。
+ */
+export async function readServerVersion(distRoot, fallback = '0.0.0') {
+  try {
+    const parsed = JSON.parse(await readFile(join(distRoot, 'server-version.json'), 'utf8'))
+    const version = typeof parsed.version === 'string' ? parsed.version.trim() : ''
+    return /^\d+\.\d+\.\d+(\.\d+)?$/.test(version) ? version : fallback
+  } catch {
+    return fallback
   }
 }

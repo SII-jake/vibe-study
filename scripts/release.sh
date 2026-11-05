@@ -43,6 +43,16 @@ APK_FILE="$(find "$REPO_ROOT/dist/app" -maxdepth 1 -name "vibe-study-${VERSION_N
 [ -n "$APK_FILE" ] || die "dist/app/ 下未找到 vibe-study-${VERSION_NAME}-release.apk（versionName 与产物不符？）"
 echo "APK 就位：$APK_FILE"
 
+# 服务端版本（双版本第二口径）：壳版本不变的服务端前进也要可见。
+# seq 持久化在 dist/app/.release-seq（publish-apk.sh 只清 *.apk，不动隐藏文件），
+# 每次发布自增；版本串 = <壳 versionName>.<seq>，老部署无 seq 文件从 0 起。
+SEQ_FILE="$REPO_ROOT/dist/app/.release-seq"
+SEQ=$(( $(cat "$SEQ_FILE" 2>/dev/null || echo 0) + 1 ))
+echo "$SEQ" > "$SEQ_FILE"
+SERVER_VERSION="${VERSION_NAME}.${SEQ}"
+printf '{"version":"%s"}' "$SERVER_VERSION" > "$REPO_ROOT/dist/server-version.json"
+echo "服务端版本：$SERVER_VERSION（seq=$SEQ，已写 dist/server-version.json）"
+
 step "5/6 重启后端（精确匹配 + 优雅停机 + nohup 接管）"
 find_server_pid() {
   # 监听 8787 的进程可能有多个（理论上），逐个核对身份
@@ -99,9 +109,11 @@ for _ in $(seq 1 30); do
   if [ -n "$body" ]; then
     # 服务端的唯一版本口径：扫 dist/app/ 的 APK 文件名；与工程源 build.gradle 对拍
     served="$(printf '%s' "$body" | rg -o '"versionName":"[^"]+"' | head -1 | cut -d'"' -f4)"
-    if [ "$served" = "$VERSION_NAME" ]; then
+      # 服务端版本（发布脚本本次自增）也必须在响应里，否则新前端拿不到第二口径
+      served_sv="$(printf '%s' "$body" | rg -o '"serverVersion":"[^"]+"' | head -1 | cut -d'"' -f4)"
+      if [ "$served" = "$VERSION_NAME" ] && [ "$served_sv" = "$SERVER_VERSION" ]; then
       healthy="1"
-      echo "后端健康：/api/app-version 返回 versionName=$served"
+        echo "后端健康：/api/app-version 返回 versionName=$served、serverVersion=$served_sv"
       break
     fi
   fi
@@ -115,4 +127,4 @@ fi
 curl -sf -o /dev/null "http://${LISTEN_HOST}:${LISTEN_PORT}/" || die "静态首页不可达，请人工排查"
 echo "静态首页可达。"
 
-printf '\n\033[1;32m发布完成：%s（后端 PID=%s）\033[0m\n' "$VERSION_NAME" "$NEW_PID"
+printf '\n\033[1;32m发布完成：应用版本 %s｜服务端版本 %s（后端 PID=%s）\033[0m\n' "$VERSION_NAME" "$SERVER_VERSION" "$NEW_PID"

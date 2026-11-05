@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ServerHealth } from '../ai/health'
 import { loadModelPreference, saveModelPreference } from '../ai/preferences'
 import {
   checkInstalledAppUpdate,
   currentVersionLabel,
+  fetchServerVersion,
   hasUpdateBridge,
   type AppUpdateResult,
 } from './app-update-check'
@@ -39,6 +40,18 @@ export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPagePr
   const [update, setUpdate] = useState<
     { phase: 'idle' } | { phase: 'checking' } | { phase: 'done'; result: AppUpdateResult }
   >({ phase: 'idle' })
+  // 服务端版本与应用版本并列展示：壳没变的服务端前进（纯前端发布）也要看得见
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void fetchServerVersion().then((version) => {
+      if (alive) setServerVersion(version)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const runUpdateCheck = () => {
     setUpdate({ phase: 'checking' })
@@ -92,11 +105,11 @@ export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPagePr
           改上游地址或密钥需要编辑服务端的 server/.env，改完重启服务进程生效。
         </p>
 
-        {hasUpdateBridge() && (
-          <div className="field">
-            <span>应用更新</span>
+        <div className="field">
+          <span>{hasUpdateBridge() ? '应用更新' : '服务端'}</span>
+          {hasUpdateBridge() && (
             <div className="status-row">
-              <span>当前版本 {currentVersionLabel()}</span>
+              <span>应用版本 {currentVersionLabel()}</span>
               <button
                 type="button"
                 className="btn-ghost status-refresh"
@@ -106,9 +119,14 @@ export function SettingsPage({ health, onRefreshHealth, onBack }: SettingsPagePr
                 {update.phase === 'checking' ? '检查中…' : '检查更新'}
               </button>
             </div>
-            {update.phase === 'done' && <p className="hint update-status">{updateStatusText(update.result)}</p>}
+          )}
+          <div className="status-row">
+            <span>服务端版本 {serverVersion ?? '获取中…'}</span>
           </div>
-        )}
+          {hasUpdateBridge() && update.phase === 'done' && (
+            <p className="hint update-status">{updateStatusText(update.result)}</p>
+          )}
+        </div>
       </div>
     </div>
   )
