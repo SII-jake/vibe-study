@@ -1136,6 +1136,11 @@ body:has([data-dragging]) {
 
 .drawer-backdrop {
   display: none;
+  /* 渲染为 button：复位默认边框/内边距/字体，遮罩本体只是一块透明点击层 */
+  padding: 0;
+  border: none;
+  font: inherit;
+  cursor: default;
 }
 
 @media (max-width: 767px) {

@@ -62,6 +62,26 @@ describe('CollapsibleSidebar', () => {
     expect(onToggle).toHaveBeenCalledWith(true)
   })
 
+  it('展开形态：渲染点按收起遮罩（手机端点侧栏之外的区域也能收起）', () => {
+    render(
+      <CollapsibleSidebar collapsed={false} onToggle={() => {}}>
+        <p>会话列表</p>
+      </CollapsibleSidebar>,
+    )
+    expect(container.querySelector('.drawer-backdrop')).not.toBeNull()
+  })
+
+  it('点按收起遮罩回调 onToggle(true)', () => {
+    const onToggle = vi.fn()
+    render(
+      <CollapsibleSidebar collapsed={false} onToggle={onToggle}>
+        <p>会话列表</p>
+      </CollapsibleSidebar>,
+    )
+    act(() => (container.querySelector('.drawer-backdrop') as HTMLButtonElement).click())
+    expect(onToggle).toHaveBeenCalledWith(true)
+  })
+
   it('收起形态：不渲染侧栏内容，显示悬浮展开按钮', () => {
     render(
       <CollapsibleSidebar collapsed onToggle={() => {}}>
@@ -70,6 +90,8 @@ describe('CollapsibleSidebar', () => {
     )
     expect(container.textContent).not.toContain('会话列表')
     expect(container.querySelector('[aria-label="展开左侧栏"]')).not.toBeNull()
+    // 收起态没有遮罩可点
+    expect(container.querySelector('.drawer-backdrop')).toBeNull()
   })
 
   it('点展开按钮回调 onToggle(false)', () => {
