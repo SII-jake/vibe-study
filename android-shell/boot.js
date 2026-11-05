@@ -89,19 +89,7 @@ async function checkAppUpdate(server) {
   bridge.downloadAndInstall(url, published.sha256 ?? '')
   return { status: 'downloading', versionName }
 }
-function loadPassword() {
-  const saved = (window.localStorage.getItem(VIBE_BOOT_PASSWORD_KEY) ?? '').trim()
-  return saved === '' ? DEFAULT_PASSWORD : saved
-}
 
-/**
- * 保存本地口令；传空串/空白视为"恢复默认"，方便改乱后一键回去。
- */
-function savePassword(password) {
-  const trimmed = (password ?? '').trim()
-  if (trimmed === '') window.localStorage.removeItem(VIBE_BOOT_PASSWORD_KEY)
-  else window.localStorage.setItem(VIBE_BOOT_PASSWORD_KEY, trimmed)
-}
 
 window.VibeBoot = {
   DEFAULT_SERVER,
@@ -111,8 +99,7 @@ window.VibeBoot = {
   saveServer,
   resolveBootBack,
   checkAppUpdate,
-  loadPassword,
-  savePassword,
+
   enterApp(server) {
     /**
      * 登录换 Cookie 走整页 form POST 导航，不走 fetch：

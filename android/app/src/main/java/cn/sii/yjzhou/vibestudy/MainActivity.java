@@ -17,6 +17,7 @@ import android.view.ActionMode;
 import android.webkit.JavascriptInterface;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -24,7 +25,7 @@ import java.io.File;
 
 /**
  * 两件原生职责：
-  * 1) 正文长按屏蔽系统选择菜单：系统 ActionMode 菜单会与页面自己的「就这段提问」
+ * 1) 正文长按屏蔽系统选择菜单：系统 ActionMode 菜单会与页面自己的「就这段提问」
   *    浮动按钮同时弹出（手机实测反馈）。Web 层没有 API 屏蔽系统菜单，因此在原生侧
   *    拦截：不可编辑区域（正文）浮现选择菜单立即 finish；焦点在输入框时放行。
   *    可编辑状态由页面同步：src/ui/selection-guard.ts 在 focusin/focusout 时
@@ -39,10 +40,18 @@ public class MainActivity extends BridgeActivity {
     private volatile boolean editableFocused = false;
 
     @Override
+    public void onCreate(android.os.Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Android 15+ 强制 edge-to-edge：内容被画到系统状态栏后面，
+        // 「＋新会话」与电量图标重叠（真机反馈）。decor 适配系统窗口即可
+        // 回到「WebView 在状态栏之下」的布局；CSS 的 safe-top 兜底挖空场景。
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
         // 桥在 onCreate 后才初始化；onResume 阶段 WebView 就绪。
-        // 每次回到前台重新注册：页面 reload 后桥仍在，无副作用。
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().addJavascriptInterface(new SelectionGuardBridge(), "VibeSelectionGuard");
             getBridge().getWebView().addJavascriptInterface(new AppUpdateBridge(), "VibeAppUpdate");
@@ -52,11 +61,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onActionModeStarted(ActionMode mode) {
         if (!editableFocused) {
-            // 正文区的系统选择菜单：立刻关掉，只留页面自己的浮动按钮
             mode.finish();
             return;
         }
-        // 焦点在输入框：粘贴/全选等编辑菜单照常用
         super.onActionModeStarted(mode);
     }
 
@@ -225,5 +232,4 @@ public class MainActivity extends BridgeActivity {
             }
         }
     }
->>>>>>> fix/manual-update
 }

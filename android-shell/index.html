@@ -152,7 +152,15 @@
             autoCounting: autoTimer !== null,
           })
           if (action === 'cancel-edit') {
-            showEnter(window.VibeBoot.loadSavedServer())
+            window.addEventListener('focus', function () {
+        // 从「安装未知应用」系统设置回到启动页：权限一开即自动复查，
+        // 本次检查到新版会直接拉起下载，不再等重启
+        if (byId('otaHint').style.display === 'block' && autoTimer === null) {
+          enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+        }
+      })
+
+      showEnter(window.VibeBoot.loadSavedServer())
             return
           }
           if (action === 'cancel-countdown') {
