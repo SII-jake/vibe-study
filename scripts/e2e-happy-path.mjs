@@ -49,6 +49,52 @@ async function main() {
   page.on('pageerror', (error) => pageErrors.push(String(error)))
 
   /**
+   * 同步端点拦截：e2e 的前提是「empty 起点 + demo 确定性驱动」，
+   * 而浏览器页面会走 node-sync 把 dev 后端的真机数据下拉进 IndexedDB，
+   * 使「载入示例」入口（仅在无会话时渲染）永远不出现，链路第一步就断；
+   * 继续跑还会把 demo 数据 PUT 回真机服务端，污染用户数据。
+   * 因此此处拦掉 /api/nodes，但必须是「仿真服务端」而非「假装的空壳」：
+   * GET 回最近一次 PUT 存下的数据（初次为空），PUT 把提交存进内存。
+   * 只回空态会破坏同步不变量——reload 后 GET 到「更高版本号的空数据」，
+   * 同步器据此清空本地 IndexedDB，demo 数据在中途凭空消失。
+   */
+  let interceptedVersion = 0
+  let interceptedNodes = []
+  await page.setRequestInterception(true)
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (url.pathname !== '/api/nodes') {
+      void request.continue()
+      return
+    }
+    if (request.method() === 'GET') {
+      void request.respond({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-Nodes-Version': String(interceptedVersion) },
+        body: JSON.stringify({ version: interceptedVersion, nodes: interceptedNodes }),
+      })
+      return
+    }
+    if (request.method() === 'PUT') {
+      try {
+        const payload = JSON.parse(request.postData() ?? '{}')
+        if (Array.isArray(payload.nodes)) interceptedNodes = payload.nodes
+      } catch {
+        // 解析不出就不存，仍按成功回应：链路的关注点不在同步校验语义上
+      }
+      interceptedVersion += 1
+      void request.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ version: interceptedVersion }),
+      })
+      return
+    }
+    void request.continue()
+  })
+
+  /**
    * 计算当前态收展按钮（展开态取 collapse、收起态取 expand）与其余
    * 可交互元素的几何重叠。返回重叠控件的可读标签列表；空数组表示无重叠。
    * 放在 main 顶部声明，让启动/收起/展开三处的断言都能引用。
@@ -282,13 +328,13 @@ async function main() {
   await sleep(400)
 
   // 问题③：追问气泡与助手回答必须视觉区分（背景色不同为硬指标）。
-  // 提交追问时 front 端先把消息写进节点（.turn-user 气泡即时出现），
+  // 提交追问时 front 端先把消息写进节点（.msg-user 气泡即时出现），
   // 之后才走流式，因此可在不依赖模型回复的情况下断言样式。
   await page.setViewport({ width: 700, height: 900 })
   await page.evaluate(() => window.localStorage.setItem('sidebar-collapsed', '1'))
   const followOk = await page.evaluate(async () => {
-    const input = document.querySelector('.follow-input')
-    const send = document.querySelector('.follow-send')
+    const input = document.querySelector('.composer-input')
+    const send = document.querySelector('.composer-send')
     if (!input || !send) return { ok: false }
     // 触发 React 受控组件更新
     const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
@@ -298,10 +344,11 @@ async function main() {
   })
   check('（手机视口·消息格式）追问提交入口就位', followOk.ok)
   await sleep(300)
-  await page.evaluate(() => document.querySelector('.follow-send')?.click())
+  await page.evaluate(() => document.querySelector('.composer-send')?.click())
   await sleep(400)
   const bubbleVisual = await page.evaluate(() => {
-    const bubble = document.querySelector('.turn-user')
+    // 追问气泡是最新一枚用户气泡（气泡内容为右端色块 .msg-bubble）
+    const bubble = [...document.querySelectorAll('.msg-user .msg-bubble')].at(-1)
     const fragment = document.querySelector('.fragment')
     if (!bubble || !fragment) return { bubble: !!bubble, fragment: !!fragment }
     const bubbleBg = getComputedStyle(bubble).backgroundColor

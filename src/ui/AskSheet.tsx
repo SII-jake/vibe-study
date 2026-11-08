@@ -35,6 +35,13 @@ export function AskSheet({ anchorText, onSubmit, onCancel }: AskSheetProps) {
           placeholder="你的问题…"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            if (event.nativeEvent.isComposing) return
+            if (event.shiftKey) return
+            event.preventDefault()
+            submit()
+          }}
         />
         <div className="sheet-actions">
           <button type="button" className="btn-ghost" onClick={onCancel}>

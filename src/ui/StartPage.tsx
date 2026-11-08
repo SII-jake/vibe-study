@@ -61,27 +61,30 @@ export function StartPage({ data, onCreated, onOpenMenu }: StartPageProps) {
         </div>
       </div>
 
-      <div className="follow-bar">
+      <div className="composer start-composer">
         <textarea
-          className="follow-input"
-          rows={2}
-          placeholder="问点什么…"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            className="composer-input"
+            rows={1}
+            placeholder="问点什么…"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              // 中文输入法在组合中回车是确认合成，不该发送
+              if (event.nativeEvent.isComposing) return
+              if (event.shiftKey) return // Shift+Enter 只换行
               event.preventDefault()
               submit()
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="btn-primary follow-send"
-          disabled={draft.trim() === ''}
-          onClick={submit}
-        >
-          提问
+            }}
+          />
+          <button
+            type="button"
+            className="composer-send"
+            disabled={draft.trim() === ''}
+            onClick={submit}
+            aria-label="发送"
+          >
+            ↑
         </button>
       </div>
     </div>

@@ -2,6 +2,46 @@
 
 新条目加在本节最上方。
 
+## e2e 假服务端拦截破坏同步不变量：高版本空数据 reload 后清空本地 IndexedDB
+
+- 症状：e2e 链路前半段正常，中途一次 reload 后正文片段/锚点/分支卡片全部归零，
+  页面显示「这个节点已不存在」；断言大面积连锁失败。
+- 根因：拦截脚本 GET /api/nodes 永远回 `[]`，但 PUT 时照样递增版本号；
+  页面 reload 后 node-sync 拿到「更高版本号的空数据」，判定远端更新并采用，
+  于是把本地 demo 数据清空。同步协议里的版本号语义被假服务端玩坏了。
+- 做法：拦截/打桩「带状态端点」必须是仿真服务端而不是固定回包——
+  GET 回最近一次 PUT 存下的数据，维持「版本号与内容一致」的不变量。
+  同类教训适用于所有用 interception/mock 拦同步协议的场景。
+
+## e2e happy path 直连 dev 后端会把真机数据下拉并可能回写污染
+
+- 症状：e2e 假定从空数据起步（「载入示例」入口仅在无会话时渲染），
+  实际浏览器 profile 里出现用户真机会话，链路第一断言就断。
+- 根因：node-sync 启动时向 dev 后端（vite dev → 8788 API）GET /api/nodes
+  拉真实数据进 IndexedDB；后续链路再 PUT 时甚至把 demo 写回真机服务端。
+- 做法：前端带同步/持久层的 e2e，第一件事是拦截该层端点，
+  保证脚本只与自己注入的数据打交道（本仓库实例：scripts/e2e-happy-path.mjs
+  对 /api/nodes 的 GET/PUT 拦截）。
+
+## 中文输入法下回车发送必须防 isComposing，否则合成确认键被当成发送
+
+- 症状：用中文输入法打字时按回车确认候选词，消息却直接发出去了。
+- 根因：Enter 在 IME 组合阶段既有「确认合成」又有「提交表单」两条语义，
+  只拦 `key === 'Enter'` 会把前者也吞成发送。
+- 做法：所有自实现「回车发送」的 textarea/input 都要同时判
+  `!event.nativeEvent.isComposing`（React 里取 nativeEvent，
+  原生监听取事件本身的 isComposing）；Shift/Ctrl/Cmd 修饰另算，
+  这条防线独立于修饰键判断存在。
+
+## child_process 流式 stdout 的测试不能在 vitest 里跑：jsdom 缺 TextEncoderStream
+
+- 症状：测试文件引入 child_process 跑真实子进程并采集流式 stdout 时，
+  在 vitest 下直接报 `No test suite found` 或 TextEncoderStream undefined。
+- 根因：vitest 环境（node/jsdom）缺 Node 22 原生的 TextEncoderStream，
+  child_process 的流式管道依赖它。
+- 做法：这类测试独立成 plain node 测试（`node --test`），从 vitest
+  include/exclude 里排除，由 npm test 前缀串行先跑；vitest 只收纯单元用例。
+
 ## spawn 常驻进程的唯一定论：setsid -f；`&`+disown 与 `(... &)` 都被实测抓到过卡死
 
 - 症状：发布脚本工作全部完成（服务已健康）却挂在 do_wait 不退出，下游

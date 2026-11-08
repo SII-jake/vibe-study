@@ -41,11 +41,13 @@ export function AskPane({ anchorText, onSubmit, onCancel }: AskPaneProps) {
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault()
-            submit()
-          }
           if (event.key === 'Escape') onCancel()
+          if (event.key !== 'Enter') return
+          // 中文输入法在组合中回车是确认合成，不该发送
+          if (event.nativeEvent.isComposing) return
+          if (event.shiftKey) return
+          event.preventDefault()
+          submit()
         }}
       />
 

@@ -235,18 +235,14 @@ export function NodePage({
         )}
 
         <div className="thread">
-          {thread.map(({ message, fragments: messageFragments }, turnIndex) => {
+          {thread.map(({ message, fragments: messageFragments }) => {
             const branches = branchesByMessage.get(message.id) ?? new Map<number, LearnNode[]>()
 
             if (message.role === 'user') {
-              // 第一条提问用标题形态，其后的追问用对话气泡形态
-              return turnIndex === 0 ? (
-                <h1 className="reader-question" key={message.id}>
-                  {message.content}
-                </h1>
-              ) : (
-                <div className="turn-user" key={message.id}>
-                  {message.content}
+              // 所有提问都是用户气泡：与参考聊天界面同形态，对话回归对话
+              return (
+                <div className="msg msg-user" key={message.id}>
+                  <div className="msg-bubble">{message.content}</div>
                 </div>
               )
             }
@@ -307,25 +303,35 @@ export function NodePage({
              将来需要时重新设计入口。regenerate 仍保留给「生成回答」空态使用。 */}
       </div>
 
-      {/* 右栏也要能继续追问，所以 compact 同样保留底部输入条 */}
+      {/* 右栏也要能继续追问，所以 compact 同样保留底部输入芯片 */}
       {answer && (
         <div className="follow-bar">
-          <textarea
-            className="follow-input"
-            rows={2}
-            placeholder="接着这个回答问…"
-            value={followUpDraft}
-            disabled={streaming}
-            onChange={(event) => setFollowUpDraft(event.target.value)}
-          />
-          <button
-            type="button"
-            className="btn-primary follow-send"
-            disabled={followUpDraft.trim() === '' || streaming}
-            onClick={submitFollowUp}
-          >
-            问
-          </button>
+          <div className="composer">
+            <textarea
+              className="composer-input"
+              rows={1}
+              placeholder="接着这个回答问…"
+              value={followUpDraft}
+              disabled={streaming}
+              onChange={(event) => setFollowUpDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                if (event.nativeEvent.isComposing) return
+                if (event.shiftKey) return
+                event.preventDefault()
+                submitFollowUp()
+              }}
+            />
+            <button
+              type="button"
+              className="composer-send"
+              disabled={followUpDraft.trim() === '' || streaming}
+              onClick={submitFollowUp}
+              aria-label="发送"
+            >
+              ↑
+            </button>
+          </div>
         </div>
       )}
 

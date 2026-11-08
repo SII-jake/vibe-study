@@ -170,14 +170,15 @@ describe('NodePage compact', () => {
     expect(onNavigate).toHaveBeenCalledWith('grand')
   })
 
-  it('追问以对话气泡呈现（.turn-user），与助手回答的 .fragment 是分离的两类元素', () => {
+  it('追问以对话气泡呈现（.msg-user），与助手回答的 .fragment 是分离的两类元素', () => {
     // 真机反馈：用户消息与助手回答混在一起、像一段话。
     // DOM 类名就位是样式区分的前提；视觉区分由样式表保证（e2e 已断言
     // 背景色不同——纯样式改动走 e2e，不走 jsdom）。
     render(
       <NodePage data={makeData(withFollowUp)} nodeId="child" onNavigate={() => {}} onOpenTree={() => {}} compact />,
     )
-    const userBubble = container.querySelector('.turn-user')
+    // 提问与追问现在都是气泡；这条断言的对象是追问（最后一枚）
+    const userBubble = [...container.querySelectorAll('.msg-user')].at(-1)
     const fragments = container.querySelectorAll('.fragment')
     expect(userBubble).not.toBeNull()
     expect(userBubble?.textContent).toContain('再给一个具体数字例')

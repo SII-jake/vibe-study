@@ -310,26 +310,27 @@ button {
   line-height: 1.55;
 }
 
-.reader-question {
-  margin: 0 0 16px;
-  font-size: 21px;
-  font-weight: 600;
-  line-height: 1.45;
+/* 用户气泡：所有提问/追问统一右端色块，与参考聊天界面同形态；助手回答平铺在左 */
+.msg {
+  margin: 16px 0 10px;
 }
 
-/*
- * 追问（第二轮起的用户消息）：气泡形态与助手回答区分。
- * 复用锚点引用块的视觉语言（左竖条 + 加强色浅底），
- * 此前无样式 → 追问与回答在屏幕上完全连成一段（真机反馈）。
- */
-.turn-user {
-  margin: 18px 0 12px;
+.msg-user {
+  text-align: right;
+}
+
+.msg-bubble {
+  display: inline-block;
+  max-width: min(80%, 520px);
   padding: 10px 14px;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 10px 10px 0;
+  border-radius: 20px;
   background: var(--accent-soft);
-  line-height: 1.6;
+  color: var(--text);
+  /* 内容格：气泡是元素非文字行，text-align 需重置回左 */
+  text-align: left;
+  line-height: 1.55;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .fragment-block + .fragment-block {
@@ -582,26 +583,36 @@ button {
   margin-top: 12px;
 }
 
-/* 底部输入条：阅读页追问与起始页提问共用 */
+/* 底部输入区：阅读页追问（外层贴底条）与起始页提问（独立芯片）共用 .composer 芯片形态 */
 
 .follow-bar {
-  display: flex;
   flex-shrink: 0;
-  align-items: flex-end;
-  gap: 8px;
   padding: 8px 16px calc(12px + var(--safe-bottom));
-  border-top: 1px solid var(--line);
   background: var(--bg);
 }
 
-.follow-input {
+/* DS 参考同向的圆角输入芯片：textarea 与圆形发送按钮收进同一圆角壳 */
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: var(--surface);
+}
+
+.composer:focus-within {
+  border-color: var(--accent);
+}
+
+.composer-input {
   flex: 1;
   min-height: 44px;
-  max-height: 140px;
+  max-height: 160px;
   padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: none;
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 15px;
@@ -609,14 +620,35 @@ button {
   resize: none;
 }
 
-.follow-input:focus {
+.composer-input:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
-.follow-send {
-  min-height: 44px;
-  padding: 0 18px;
+.composer-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0b1020;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.composer-send:disabled {
+  opacity: 0.35;
+}
+
+/* 起始页：没有贴底条，芯片自己就是底部件，居中拿到与上方示例相同的最大宽度 */
+.start-composer {
+  align-self: center;
+  width: min(640px, calc(100% - 32px));
+  margin-bottom: calc(20px + var(--safe-bottom));
 }
 
 /* 起始页：还没有会话时的中栏 */
@@ -879,8 +911,9 @@ body:has([data-dragging]) {
   padding: 14px 16px calc(20px + var(--safe-bottom));
 }
 
-.page-reader-compact .reader-question {
-  font-size: 17px;
+.page-reader-compact .msg-bubble {
+  max-width: 88%;
+  font-size: 15px;
 }
 
 .page-reader-compact .anchor-quote {
