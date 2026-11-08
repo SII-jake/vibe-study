@@ -1,16 +1,101 @@
 /**
- * 模型可用的外部工具：联网搜索（多关键词检索一次完成，返回摘要）。
+ * 模型可用的外部工具：联网搜索、bash、python。
  * search 是纯检索，永不抓正文；正文抓取只有一条触发路径——
  * 用户消息里给出了具体网页链接（agent 层扫描消息后调 fetchUserUrls，走 jina）。
  * 检索提供方二选一：默认 serper；配置 DEEPSEEK_KEY 后切换为 DeepSeek search
  * （返回条目带 600-800 字模型可读长摘要）。密钥只在服务端使用。
  */
 
+import { spawn } from 'node:child_process'
+
 /** 单页抓回的正文上限：够核对摘要与关键事实，又避免超长页面把上下文撑爆。 */
 const PAGE_MAX_CHARS = 3000
 
 /** 摘要条数：与过去保持一致的前 8 条。 */
 const TOP_RESULTS = 8
+
+/** 单次 shell 执行的默认与硬上限（ms）：模型给的更长也不放行，挂死命令不能拖住整轮。 */
+const SHELL_DEFAULT_TIMEOUT_MS = 30_000
+const SHELL_MAX_TIMEOUT_MS = 120_000
+/** 输出回传上限：防止模型用一条命令把上下文撑爆。 */
+const SHELL_OUTPUT_MAX_CHARS = 4000
+
+/**
+ * 跑一次 shell 命令，回报 stdout、stderr 与退出码。
+ *
+ * 要点：spawn 时 detached 起新进程组——非交互 sh 不带 job control，模型在命令里
+ * 写的所有后台 job 与 sh 同属一个进程组；超时时按 -pid 组杀，把后台孙子一起带走，
+ * 不留孤儿进程吃服务器资源。
+ * 不挂 exec 前缀：exec 会让 sh 在首个简单命令处被替换掉，`a; b` 这类复合命令的
+ * 后半截随之静默丢失，语义与模型预期不符。
+ */
+function runShell(command, timeoutMs) {
+  const timeout = Math.min(
+    Math.max(Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : SHELL_DEFAULT_TIMEOUT_MS, 500),
+    SHELL_MAX_TIMEOUT_MS,
+  )
+  return new Promise((resolve) => {
+    const child = spawn(command, {
+      shell: true,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let timedOut = false
+
+    const timer = setTimeout(() => {
+      timedOut = true
+      try {
+        // 负 pid = 进程组组杀：命令里的后台 job 与 sh 同组，一并带走
+        process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        // 组已不存在（进程刚自己退出）：无需处理
+      }
+    }, timeout)
+
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', (cause) => {
+      clearTimeout(timer)
+      resolve(`执行失败：${cause.message}\n退出码：-1`)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve(formatShellResult(stdout, stderr, code, timedOut))
+    })
+  })
+}
+
+/** 把输出规整成模型能读的一页文本；非零退出与超时不视为异常，如实告诉模型。 */
+function formatShellResult(stdout, stderr, code, timedOut) {
+  const parts = []
+  const out = stdout.trim()
+  const err = stderr.trim()
+  parts.push(out === '' ? '（无 stdout）' : `stdout:\n${out}`)
+  if (err !== '') parts.push(`stderr:\n${err}`)
+  if (timedOut) parts.push('已超时')
+  parts.push(`退出码：${timedOut ? '-1(超时)' : code}`)
+  const result = parts.join('\n')
+  return result.length > SHELL_OUTPUT_MAX_CHARS
+    ? `${result.slice(0, SHELL_OUTPUT_MAX_CHARS)}\n…（输出过长已截断）`
+    : result
+}
+
+/** bash 工具：模型给一条 shell 命令，在本机跑。 */
+async function runBash(args, timeoutMs) {
+  const command = String(args?.command ?? '').trim()
+  if (command === '') return '缺少 command 参数（需要一段 shell 命令）'
+  return runShell(command, timeoutMs)
+}
+
+/** python 工具：模型给一段 python 源码，用 python3 跑。 */
+async function runPython(args, timeoutMs) {
+  const code = String(args?.code ?? '')
+  if (code.trim() === '') return '缺少 code 参数（需要一段 python 代码）'
+  const encoded = Buffer.from(code, 'utf8').toString('base64')
+  return runShell(`python3 -c "import base64; exec(base64.b64decode('${encoded}'))"`, timeoutMs)
+}
 
 /** 抓一个页面的正文（jina reader）。失败转为文本标注而不是抛错。 */
 async function fetchPageJina(config, url, fetchImpl) {
@@ -119,10 +204,20 @@ function normalizeQueries(args) {
   return [...new Set(list.map((q) => String(q ?? '').trim()).filter((q) => q !== ''))]
 }
 
-/** 执行一次工具调用；工具不可用与上游错误都转为文本结果，交给模型自行解释。 */
-export async function executeTool(config, name, args, fetchImpl = fetch) {
-  if (name !== 'search') return `未知工具：${name ?? '(空)'}`
-  const queries = normalizeQueries(args)
-  if (queries.length === 0) return '搜索关键词为空（需要 queries 数组）'
-  return searchWeb(config, queries, fetchImpl)
+/**
+ * 执行一次工具调用；工具不可用与上游错误都转为文本结果，交给模型自行解释。
+ * fetchImpl 只是 search 的依赖；options.timeoutMs 仅测试用，把单条命令掐短。
+ */
+export async function executeTool(config, name, args, fetchImpl = fetch, options = {}) {
+  if (name === 'search') {
+    const queries = normalizeQueries(args)
+    if (queries.length === 0) return '搜索关键词为空（需要 queries 数组）'
+    return searchWeb(config, queries, fetchImpl)
+  }
+  if (name === 'run_bash' || name === 'run_python') {
+    if (!config.shellTools) return `工具 ${name} 未启用（服务端 SHELL_TOOLS 未打开）`
+    const timeoutMs = options.timeoutMs ?? args?.timeoutMs
+    return name === 'run_bash' ? runBash(args, timeoutMs) : runPython(args, timeoutMs)
+  }
+  return `未知工具：${name ?? '(空)'}`
 }

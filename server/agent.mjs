@@ -19,6 +19,10 @@ const TOOL_GUIDE = [
   '   "逐段读过原文"。回答注明来源链接，对于不一致的口径要明说矛盾。\n',
   '4. 每次提问最多调 1-2 次 search：结果不够也先用手头材料作答，不要一轮一轮\n',
   '   地追加扩散。概念讲解、逻辑推导、已给出原文的追问不需要搜索。',
+  '5. run_bash / run_python 本机执行工具：需要系统当下状态（当前时间、环境、\n',
+  '   已装软件版本），或要验证一段代码的真实行为时，直接跑一段最小程序作答，\n',
+  '   比凭记忆断言更可靠。只在确实需要系统事实或验证代码行为时调用；\n',
+  '   命令保持短平快，不要做与作答无关的系统改动。\n',
 ].join('')
 
 export const TOOL_DEFS = [
@@ -37,6 +41,36 @@ export const TOOL_DEFS = [
           },
         },
         required: ['queries'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_bash',
+      description: '在服务器本机执行一段 bash 命令，回传 stdout、stderr 与退出码。用于取系统当下状态（当前时间、环境、版本）或验证 shell 行为。',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: '要执行的 shell 命令' },
+          timeoutMs: { type: 'number', description: '超时毫秒数（默认 30000，封顶 120000）' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_python',
+      description: '用 python3 执行一段 python 代码，回传打印输出与退出码。用于验证一段代码的真实行为或做精确计算。',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: '要执行的 python 源码' },
+          timeoutMs: { type: 'number', description: '超时毫秒数（默认 30000，封顶 120000）' },
+        },
+        required: ['code'],
       },
     },
   },
@@ -345,7 +379,11 @@ export async function runAgentTurn(
         /** 打包 search 的关键词列表（兼容模型偶尔发出的单字符串 query）。 */
         const queries =
           args.queries ?? (typeof args.query === 'string' ? [args.query] : [])
-        onStep({ tool: name, detail: queries.join('、') })
+        // 状态行摘要：search 用关键词列表；shell 工具用命令本身（截断防爆状态栏）
+        const commandText = typeof args.command === 'string' ? args.command : typeof args.code === 'string' ? args.code : ''
+        const detail =
+          queries.length > 0 ? queries.join('、') : commandText.trim().replace(/\s+/g, ' ').slice(0, 60)
+        onStep({ tool: name, detail })
         try {
           return await executeTool(config, name, args, fetchImpl)
         } catch (cause) {

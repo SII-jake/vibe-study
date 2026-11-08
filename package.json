@@ -10,7 +10,7 @@
     "start": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run",
+    "test": "node tests/shell-tools.test.mjs && vitest run",
     "test:e2e": "node scripts/e2e-happy-path.mjs",
     "typecheck": "tsc --noEmit"
   },

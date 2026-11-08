@@ -200,8 +200,8 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
     // 断开不再连带中止：生成跑完写入残迹，前端随后能按 key 拉回 —— 这是续传的前提。
     const controller = new AbortController()
 
-    // 配了工具密钥时走 agent 循环；过程中先推工具动作，再推最终回答。
-    if (config.serperKey || config.jinaKey) {
+    // 具备任一工具能力时走 agent 循环（搜索密钥或 shell 工具开关）；过程中先推工具动作，再推最终回答。
+    if (config.serperKey || config.jinaKey || config.shellTools) {
       response.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
@@ -226,6 +226,10 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
                 ? `正在搜索：${step.detail}`
                 : step.tool === 'read_url'
                   ? `正在读取：${step.detail}`
+                  : step.tool === 'run_bash'
+                    ? `正在执行：${step.detail}`
+                    : step.tool === 'run_python'
+                      ? `正在运行 Python：${step.detail}`
                   : null
             if (label) writeEvent({ status: label })
           },

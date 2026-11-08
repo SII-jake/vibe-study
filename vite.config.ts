@@ -11,6 +11,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx', 'tests/**/*.test.mjs'],
+    // shell 工具测试用 child_process + 流式 stdout，必须先以 plain node 子进程跑（见 npm test 前缀）；
+    // vitest 环境缺 TextEncoderStream，收进来会止于 No test suite found
+    exclude: ['tests/shell-tools.test.mjs'],
   },
   server: {
     // nginx 把 8787 转给外部域名，dev server 占住这个端口就不必改 nginx

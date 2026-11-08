@@ -145,9 +145,9 @@ describe('executeTool', () => {
 })
 
 describe('TOOL_DEFS', () => {
-  it('只声明一个打包的 search 工具（检索+抓正文一体）', () => {
+  it('声明 search 打包工具与 bash/python 本机执行工具', () => {
     const names = TOOL_DEFS.map((t) => t.function?.name)
-    expect(names).toEqual(['search'])
+    expect(names).toEqual(['search', 'run_bash', 'run_python'])
   })
 
   it('search 接受关键词数组，一次发起多轮检索与抓取', () => {
