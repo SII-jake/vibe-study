@@ -63,6 +63,9 @@
         font-size: 15px;
       }
       .hint { color: #99a0b0; font-size: 13px; line-height: 1.6; margin: 6px 0 0; }
+      .presets { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+      .preset { padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f3a; background: #16181f; color: #7ab3ff; font-size: 13px; text-align: left; }
+      .preset:active { background: #1d2029; }
       .error { color: #e0685c; font-size: 13px; margin: 6px 0 0; display: none; }
       #editArea { display: none; }
     </style>
@@ -81,11 +84,11 @@
 
     <div class="card" id="editArea">
       <div>服务器地址</div>
-      <input id="serverInput" type="url" inputmode="url" list="serverPresets" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
-        <datalist id="serverPresets">
-          <option value="http://210.45.88.175:8787"></option>
-          <option value="https://8.153.198.42:18003"></option>
-        </datalist>
+      <input id="serverInput" type="url" inputmode="url" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+        <div class="presets" id="serverPresets">
+          <button type="button" class="preset" data-server-value="https://study.sii.edu.cn">https://study.sii.edu.cn</button>
+          <button type="button" class="preset" data-server-value="https://8.153.198.42:18003">https://8.153.198.42:18003</button>
+        </div>
       <div style="margin-top:8px">访问口令</div>
       <input id="passwordInput" type="password" autocomplete="off" placeholder="默认口令已内置；改过就填新口令，留空恢复默认" />
       <button id="saveBtn">保存并进入</button>
@@ -177,6 +180,12 @@
 
       byId('enterBtn').addEventListener('click', function () {
         enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+      })
+
+      document.querySelectorAll('#serverPresets .preset').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          byId('serverInput').value = btn.getAttribute('data-server-value')
+        })
       })
 
       byId('editBtn').addEventListener('click', function () {

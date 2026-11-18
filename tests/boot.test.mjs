@@ -120,19 +120,20 @@ describe('enterApp 自动登录', () => {
   })
 })
 
-// 服务器地址下拉候选（实测需求）：启动页输入框带 datalist 预设项——
-// 当前默认值 + 8.153.198.42:18003，手动输入能力保留（input 本身仍在）。
+// 服务器地址下拉候选（实测需求，二次迭代）：datalist 在 Android WebView 需键入才给
+// 建议、交互不是"点开列全量候选"（用户实测不到下拉），改为自绘可点列表——
+// 候选含默认域名与新 IP，点击即回填；手动输入能力保留（input 本身仍在）。
 describe('启动页服务器地址预设下拉', () => {
   const html = readFileSync('android-shell/index.html', 'utf8')
 
-  it('输入框绑定 datalist，候选含当前默认与新增地址', () => {
-    expect(html).toMatch(/id="serverInput"[^>]*list="[^"]+"/)
+  it('服务器预设含默认域名与新 IP（不自创同义改写，与 normalize 判据一致）', () => {
+    expect(html).toContain('https://study.sii.edu.cn')
     expect(html).toContain('https://8.153.198.42:18003')
-    // 当前默认值与 boot.js 的 DEFAULT_SERVER 一致（不允许两处各说各话）
-    const boot = readFileSync('android-shell/boot.js', 'utf8')
-    const defaultServer = boot.match(/DEFAULT_SERVER = '([^']+)'/)?.[1]
-    expect(defaultServer).toBeTruthy()
-    expect(html).toContain(`value="${defaultServer}"`)
+  })
+
+  it('预设以可点选项形态渲染（button + data-server-value，不再依赖 datalist）', () => {
+    expect(html).toMatch(/<button[^>]*data-server-value="https:\/\/study\.sii\.edu\.cn"/)
+    expect(html).toMatch(/<button[^>]*data-server-value="https:\/\/8\.153\.198\.42:18003"/)
   })
 })
 
