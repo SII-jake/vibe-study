@@ -116,12 +116,15 @@ export function staticNeedsAuth(request, auth, pathname) {
 
 /**
  * 导出门最终判定：API 请求是否需要登录。
- * 非 /api 路径返回 false —— 本判定只守 API；静态路径由 staticNeedsAuth 负责，
+ * /api 与 /anthropic 两类路径都守（代理也是服务端动作，公网穿透 = 白嫖上游配额）；
+ * 其他路径返回 false —— 静态路径由 staticNeedsAuth 负责，
  * 否则登录页之前连首页访问都会被回 401 JSON 而不是 302 引导到登录页。
  */
 export function apiNeedsAuth(request, auth, pathname) {
   if (!authRequired(auth)) return false
-  if (pathname !== '/api' && !pathname.startsWith('/api/')) return false
+  if (pathname === '/api' || pathname.startsWith('/api/') || pathname.startsWith('/anthropic/')) {
+    // 落入门卫范围，继续走放行名单与会话核验
+  } else return false
   if (isPublicApiPath(pathname)) return false
   return getSessionToken(request, auth) === null
 }

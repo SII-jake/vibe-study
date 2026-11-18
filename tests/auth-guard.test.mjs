@@ -371,3 +371,27 @@ describe('API 登录拦截', () => {
     expect(response.status).toBe(200)
   })
 })
+
+// 聊天代理必须在门卫内：/anthropic/* 未登录一律 401（实测新机器部署发现的洞——
+// 代理穿透门卫直达上游返回 422，公网任何人可调代理消耗配额）。
+describe('门卫覆盖聊天代理端点', () => {
+  it('/anthropic/v1/messages POST 未登录时 401，请求不透传上游', async () => {
+    const auth = makeAuth()
+    let upstreamCalled = false
+    const api = createHandler(baseConfig(), async () => {
+      upstreamCalled = true
+      return new Response('{}', { status: 200 })
+    }, { auth })
+    // 自包含生命周期：其他 describe 里的 running 是各自的局部变量，这里必须自起自关
+    const server = await serve(createAuthHandler(auth, api))
+    try {
+      const response = await fetch(`${server.base}/anthropic/v1/messages`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"messages":[]}', ...noRedirect,
+      })
+      expect(response.status).toBe(401)
+      expect(upstreamCalled).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+})
