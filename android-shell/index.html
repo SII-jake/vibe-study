@@ -81,7 +81,11 @@
 
     <div class="card" id="editArea">
       <div>服务器地址</div>
-      <input id="serverInput" type="url" inputmode="url" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+      <input id="serverInput" type="url" inputmode="url" list="serverPresets" placeholder="https://study.sii.edu.cn 或 192.168.1.5:8787" />
+        <datalist id="serverPresets">
+          <option value="http://210.45.88.175:8787"></option>
+          <option value="https://8.153.198.42:18003"></option>
+        </datalist>
       <div style="margin-top:8px">访问口令</div>
       <input id="passwordInput" type="password" autocomplete="off" placeholder="默认口令已内置；改过就填新口令，留空恢复默认" />
       <button id="saveBtn">保存并进入</button>

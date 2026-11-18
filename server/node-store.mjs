@@ -59,7 +59,11 @@ export function createNodeStore({ filePath = DEFAULT_NODE_FILE } = {}) {
   }
 }
 
-/** 节点负载的轻量校验：不是深校验，只挡下会把树写坏的明显坏形状。 */
+/**
+ * 节点负载的轻量校验：不是深校验，只挡下会把同步事实源写坏的明显坏形状。
+ * 口径为通用对象（id 非空串 + messages 数组）——旧 LearnNode 形状与 chat-demo
+ * 基座的 Session 形状都满足；同步协议从此与具体前端形状解耦。
+ */
 export function isValidNodesPayload(nodes) {
   if (!Array.isArray(nodes)) return false
   return nodes.every(
@@ -68,7 +72,6 @@ export function isValidNodesPayload(nodes) {
       node !== null &&
       typeof node.id === 'string' &&
       node.id !== '' &&
-      (node.parentId === null || typeof node.parentId === 'string') &&
       Array.isArray(node.messages),
   )
 }

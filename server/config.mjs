@@ -34,18 +34,23 @@ function splitList(input) {
 }
 
 export function loadServerConfig(source = process.env) {
+  const deepseekKey = (source.DEEPSEEK_KEY ?? '').trim()
+  const deepseekBase = stripSlash(source.DEEPSEEK_BASE ?? 'https://api.deepseek.com')
+  // 全切官方渠道后只需 DEEPSEEK_KEY：/api/title、/api/health 等仍读
+  // baseUrl/apiKey/model 的路径随之指向官方直路；显式配 AI_* 时尊重原值。
+  const officialFallback = deepseekKey !== '' && !source.AI_BASE_URL && !source.AI_API_KEY && !source.AI_MODEL
   return {
-    baseUrl: normalizeBaseUrl(source.AI_BASE_URL),
-    apiKey: (source.AI_API_KEY ?? '').trim(),
-    model: (source.AI_MODEL ?? '').trim(),
+    baseUrl: officialFallback ? `${deepseekBase}/v1` : normalizeBaseUrl(source.AI_BASE_URL),
+    apiKey: officialFallback ? deepseekKey : (source.AI_API_KEY ?? '').trim(),
+    model: officialFallback ? 'deepseek-flash' : (source.AI_MODEL ?? '').trim(),
     models: splitList(source.AI_MODELS),
     serperKey: (source.SERPER_KEY ?? '').trim(),
     serperBase: stripSlash(source.SERPER_BASE ?? 'https://google.serper.dev'),
     jinaKey: (source.JINA_KEY ?? '').trim(),
     jinaBase: stripSlash(source.JINA_BASE ?? 'https://r.jina.ai'),
     /** DeepSeek 搜索服务（直连 api.deepseek.com 的 /v1/tools/*），配置后替代 serper+jina。 */
-    deepseekKey: (source.DEEPSEEK_KEY ?? '').trim(),
-    deepseekBase: stripSlash(source.DEEPSEEK_BASE ?? 'https://api.deepseek.com'),
+    deepseekKey,
+    deepseekBase,
     /** bash/python 工具执行开关：模型在服务器本机跑 shell 命令，仅在受控自用时置 true。 */
     shellTools: (source.SHELL_TOOLS ?? '').trim().toLowerCase() === 'true',
     /** 单次上游请求的超时上限（ms）。模型冷启会慢，但挂起的请求不能无限等。 */
@@ -101,5 +106,7 @@ export function withEnvSource(env = process.env, readFileImpl) {
 }
 
 export function isConfigured(config) {
-  return config.apiKey !== '' && config.model !== ''
+  // 官方渠道（deepseekKey 直连 api.deepseek.com，模型固定 deepseek-flash）或
+  // 旧自编排渠道（apiKey+model 走兼容网关），任一可用即视为已配置。
+  return (config.deepseekKey ?? '') !== '' || (config.apiKey !== '' && config.model !== '')
 }

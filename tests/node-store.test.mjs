@@ -143,3 +143,27 @@ describe('/api/nodes', () => {
     }
   })
 })
+
+// 同步通道扩口径：nodes 数组改服务通用 JSON 对象（demo Session 形状没有 parentId），
+// 校验只保留"对象 + 非空 id + messages 数组"的最小护栏。
+import { isValidNodesPayload } from '../server/node-store.mjs'
+
+describe('isValidNodesPayload 的通用对象口径', () => {
+  it('demo 会话形状（有 id/messages、无 parentId/没有 title 也过）放行', () => {
+    expect(
+      isValidNodesPayload([
+        { id: 's1', title: '话题', createdAt: 1, updatedAt: 1, messages: [] },
+        { id: 's2', createdAt: 2, updatedAt: 2, messages: [{ id: 'm1' }] },
+      ]),
+    ).toBe(true)
+  })
+
+  it('仍然挡明显坏形状：非对象、无 id、空 id、messages 缺失或非数组', () => {
+    expect(isValidNodesPayload([null])).toBe(false)
+    expect(isValidNodesPayload([{ title: 'x', messages: [] }])).toBe(false)
+    expect(isValidNodesPayload([{ id: '', messages: [] }])).toBe(false)
+    expect(isValidNodesPayload([{ id: 'x' }])).toBe(false)
+    expect(isValidNodesPayload([{ id: 'x', messages: 'not-array' }])).toBe(false)
+    expect(isValidNodesPayload('not-an-array')).toBe(false)
+  })
+})

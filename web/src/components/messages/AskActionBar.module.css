@@ -1,0 +1,29 @@
+.bar {
+  position: fixed;
+  /* 位置由 JS 按选区矩形驱动（top/left 写入 style），此处只定形态；
+     centering 用 translateX(-50%) 与 JS 给的中心坐标配合 */
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.action {
+  min-height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.action:active {
+  background: var(--dsw-alias-interactive-bg-hover);
+}

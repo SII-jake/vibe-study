@@ -36,6 +36,11 @@ createServer((request, response) => {
     void authHandler(request, response)
     return
   }
+  // chat-demo 基座的官方 Messages 代理：与 /api 同一鉴权链（门卫关闭时直通）
+  if (pathname.startsWith('/anthropic/')) {
+    void authHandler(request, response)
+    return
+  }
   void staticHandler(request, response)
 }).listen(port, host, () => {
   console.log(`[study-api] 监听 http://${host}:${port}`)

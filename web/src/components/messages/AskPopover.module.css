@@ -1,0 +1,72 @@
+/* 内嵌形态（去遮罩）：layer 只做点外关闭的事件捕获，面板锚定在内容旁 */
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+}
+
+.popover {
+  position: fixed;
+  width: min(360px, calc(100vw - 32px));
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: var(--dsw-shadow-lv3);
+  /* 未传 position 时端义 DS 移动端底部（安全区间距保留） */
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* 传入 position（style.top/left）时 JS 定位值接管；transform 只保留水平居中 */
+
+.anchor {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+  border-left: 3px solid var(--dsw-alias-brand-primary);
+  padding-left: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-input-major);
+  resize: none;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.submit {
+  min-height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 18px;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 14px;
+  font-weight: 600;
+}

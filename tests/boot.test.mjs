@@ -119,3 +119,19 @@ describe('enterApp 自动登录', () => {
     }
   })
 })
+
+// 服务器地址下拉候选（实测需求）：启动页输入框带 datalist 预设项——
+// 当前默认值 + 8.153.198.42:18003，手动输入能力保留（input 本身仍在）。
+describe('启动页服务器地址预设下拉', () => {
+  const html = readFileSync('android-shell/index.html', 'utf8')
+
+  it('输入框绑定 datalist，候选含当前默认与新增地址', () => {
+    expect(html).toMatch(/id="serverInput"[^>]*list="[^"]+"/)
+    expect(html).toContain('https://8.153.198.42:18003')
+    // 当前默认值与 boot.js 的 DEFAULT_SERVER 一致（不允许两处各说各话）
+    const boot = readFileSync('android-shell/boot.js', 'utf8')
+    const defaultServer = boot.match(/DEFAULT_SERVER = '([^']+)'/)?.[1]
+    expect(defaultServer).toBeTruthy()
+    expect(html).toContain(`value="${defaultServer}"`)
+  })
+})
