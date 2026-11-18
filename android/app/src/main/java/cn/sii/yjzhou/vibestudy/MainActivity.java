@@ -15,13 +15,19 @@ import android.os.Environment;
 import android.provider.Settings;
 import android.view.ActionMode;
 import android.webkit.JavascriptInterface;
+import android.net.http.SslError;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebView;
 
 import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 
 import java.io.File;
+import java.security.MessageDigest;
+import java.security.cert.X509Certificate;
 
 /**
  * 两件原生职责：
@@ -33,8 +39,17 @@ import java.io.File;
  * 2) 壳内 OTA：VibeAppUpdate 桥 —— 前端比对 /api/app-version 与当前版本后，
  *    走 DownloadManager 下载 APK、完成即拉起系统安装器。
  *    用户只需要在系统安装弹窗点一次「安装」，不再要微信转发安装包。
+ * 3) 自签服务端证书放行（手机实测缺陷修复）：内网部署 8.153.198.42:18003 走
+ *    nginx 自签证书，Android WebView 默认对不受信证书**静默断连**——启动页选
+ *    这个地址手机"完全没有任何反应"。壳必须显式放行**白名单 host + 证书指纹
+ *    双匹配**的那一台；其余任何 SSL 错误照常拦掉，不放行陌生自签站。
  */
 public class MainActivity extends BridgeActivity {
+
+    /** 自签服务白名单（host + 证书 sha256 指纹的双匹配，见注释 3） */
+    private static final String TRUSTED_HOST = "8.153.198.42";
+    private static final String TRUSTED_CERT_SHA256 =
+        "AF:3C:B1:3C:97:89:3C:F6:41:6F:C8:A7:30:93:D7:30:1B:D9:1E:16:06:E1:83:0F:00:ED:D6:EE:0C:0A:86:83";
 
     /** 页面回写：当前焦点是否在可编辑元素（输入框/文本域/contenteditable） */
     private volatile boolean editableFocused = false;
@@ -46,6 +61,37 @@ public class MainActivity extends BridgeActivity {
         // 「＋新会话」与电量图标重叠（真机反馈）。decor 适配系统窗口即可
         // 回到「WebView 在状态栏之下」的布局；CSS 的 safe-top 兜底挖空场景。
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        // SSL 放行见注释 3：白名单双匹配的 proceed，其余照样 cancel。
+        // 必须继承 BridgeWebViewClient 而不是裸 WebViewClient——后者会顶掉
+        // Capacitor 自己的请求拦截管线（本地资产服务/路由/错误页），导致启动页黑屏
+        // （1.0.5 带病包已实测此坑并紧急下架，勿再犯）。
+        getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                String host = error.getUrl() == null ? "" : Uri.parse(error.getUrl()).getHost();
+                if (TRUSTED_HOST.equals(host) && certSha256Matches(error)) {
+                    handler.proceed();
+                } else {
+                    handler.cancel();
+                }
+            }
+        });
+    }
+
+    /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
+    private boolean certSha256Matches(SslError error) {
+        try {
+            X509Certificate cert = (X509Certificate) error.getCertificate().getX509Certificate();
+            byte[] sha256 = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < sha256.length; i++) {
+                if (i > 0) sb.append(':');
+                sb.append(String.format("%02X", sha256[i]));
+            }
+            return TRUSTED_CERT_SHA256.equalsIgnoreCase(sb.toString());
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     @Override
