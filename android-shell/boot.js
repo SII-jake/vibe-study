@@ -4,7 +4,7 @@ const VIBE_BOOT_STORAGE_KEY = 'vibe-study.server-url'
 const VIBE_BOOT_PASSWORD_KEY = 'vibe-study.password'
 const DEFAULT_SERVER = 'http://210.45.88.175:8787'
 /** 口令硬编码一份默认：自用单机库 default 即正确值；改服务器口令后在启动页里改本地值即可。 */
-const DEFAULT_PASSWORD = 'vi'
+const DEFAULT_PASSWORD = '3iE5K8IUaG5QaaqBXBT7jKRt'
 
 /** 把用户输入归一成服务器源地址；无法识别的输入返回 null。 */
 function normalizeServerUrl(input) {

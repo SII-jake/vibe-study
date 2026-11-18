@@ -145,3 +145,13 @@ describe('publish-apk.sh 的壳内资产同步守护', () => {
     expect(script).toMatch(/npx cap sync android/)
   })
 })
+
+// 默认口令强度守卫（用户要求）：硬编进壳的兜底口令必须是复杂口令，
+// 两位数兜底进公网等于裸奔；此红线钉死防止将来改回弱口令。
+describe('DEFAULT_PASSWORD 强度', () => {
+  it('默认口令长度不低于 16 位', () => {
+    const boot = readFileSync('android-shell/boot.js', 'utf8')
+    const pwd = boot.match(/DEFAULT_PASSWORD = '([^']+)'/)?.[1] ?? ''
+    expect(pwd.length).toBeGreaterThanOrEqual(16)
+  })
+})
