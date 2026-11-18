@@ -135,3 +135,12 @@ describe('启动页服务器地址预设下拉', () => {
     expect(html).toContain(`value="${defaultServer}"`)
   })
 })
+
+// publish-apk.sh 必须先 cap sync：android-shell 资产不进 git tracked 的 assets（gitignored），
+// 不同步就打出来的 APK 还是上次的旧启动页（手机上 datalist 因此拿不到，真实踩坑）。
+describe('publish-apk.sh 的壳内资产同步守护', () => {
+  const script = readFileSync('scripts/publish-apk.sh', 'utf8')
+  it('构建前必须存在 npx cap sync android 步骤', () => {
+    expect(script).toMatch(/npx cap sync android/)
+  })
+})

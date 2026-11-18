@@ -24,7 +24,11 @@ if [ ! -f "$REPO_ROOT/android/keystore.properties" ]; then
   exit 1
 fi
 
-step "1/3 构建 release APK（Gradle 自行解析 keystore.properties）"
+step "1/3 同步壳内资产 + 构建 release APK（Gradle 自行解析 keystore.properties）"
+# android-shell/ 并不会自己进 APK——npx cap sync 才把它拷到
+# app/src/main/assets/public/（该目录 gitignored）。少了这步，启动页/boot.js
+# 改动打了包也不会生效（手机上曾因此拿不到 datalist 下拉，实测踩坑）。
+(cd "$REPO_ROOT" && npx cap sync android)
 # Capacitor 8 要求 JDK 21 编译（capacitor.build.gradle JavaVersion.VERSION_21）；
 # 工具链 install-android-toolchain.sh 给的是 17，发布构建固定指向便携 JDK 21
 export JAVA_HOME="${JAVA_HOME_OVERRIDE:-$HOME/workspace/jdk-21}"
