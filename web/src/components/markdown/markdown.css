@@ -378,3 +378,58 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 14px;
 }
+
+/* 追问片段交互（decisions/2026-11-19 §二.5；真机反馈修复——曾渲染了标记但
+ * 一条样式没写，引子卡以裸 button 默认样式出现；style-guard 红线守护） */
+
+/* 被追过的片段：常驻下划线 */
+[data-ask-referenced] {
+  text-decoration: underline;
+  text-decoration-color: var(--dsw-alias-brand-primary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+/* 「返回到这里」高亮：来源片段淡底色标记 */
+[data-ask-return] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  border-radius: 4px;
+}
+
+/* 片段下的追问引子卡：与 AskBranches 的消息级卡同款（有边框/有底色的小卡片，
+ * 不是裸 inline 文本） */
+.ds-ask-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-2);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ds-ask-card:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.ds-ask-card-question {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.ds-ask-card-meta {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}

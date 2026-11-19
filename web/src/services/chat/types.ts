@@ -46,6 +46,9 @@ export type UserMessage = MessageBranch & {
   ask?: {
     anchorText: string
     anchorMessageId: string
+    /** 片段级锚点（decisions/2026-11-19 §一）：回答 AST 顶层块序号；
+     * 旧数据/消息级选区为 null，渲染与定位按可选字段处理，不迁移。 */
+    fragmentIndex?: number | null
   }
 }
 

@@ -68,3 +68,35 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* lane 顶部「返回上一级」条（真机反馈修复——曾渲染了 div 但样式表里
+ * 没有这条，按钮裸排在裸 div 上；style-guard 红线守护） */
+.laneHeader {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px 0;
+  flex-shrink: 0;
+}
+
+.laneHeader button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 桌面右栏包装层（真机反馈①滚动链双端同构）：与 TrackStage .lane 同理，
+ * flex 列让内层 MessageList 滚动器获得确定高度。 */
+[data-right-pane] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}

@@ -39,6 +39,36 @@ describe('追问分支（ask 型兄弟分支）', () => {
     // a2 的兄弟群还在（父消息下不止一个子）
     expect(s.messages.filter((m) => m.parentId === 'm1').length).toBe(2)
   })
+
+  // decisions/2026-11-19 §二.6：追问的问答不占中栏正文——挂上追问后主线可见链
+  // 必须停在追问挂载点之内；selectedChildId 是"同槽位版本切换"语义，
+  // 追问分支靠 ask 字段反查（AskBranches 路径），不需要也不应能被它选中顶进主线。
+  it('挂追问分支不改写父消息 selectedChildId，主线可见链不被顶穿', () => {
+    let s = normalize(session)
+    s = appendBranch(s, 'm1', [{ id: 'a1', role: 'assistant', content: '答一', parts: [], createdAt: 2, status: 'done' } as never])
+    expect(s.messages.find((m) => m.id === 'm1')?.selectedChildId).toBe('a1')
+    s = appendBranch(s, 'a1', [
+      { id: 'q1', role: 'user', content: '追问', files: [], createdAt: 3, ask: { anchorText: '答', anchorMessageId: 'a1' } } as UserMessage,
+      { id: 'r1', role: 'assistant', content: '追问答', parts: [], createdAt: 4, status: 'done' } as never,
+    ])
+    // 主线 lane 仍停在主线叶子，不走进追问分支
+    expect(s.messages.find((m) => m.id === 'a1')?.selectedChildId).not.toBe('q1')
+    expect(getVisibleMessages(s).map((m) => m.id)).toEqual(['m1', 'a1'])
+  })
+
+  it('读取侧兜底：selectedChildId 已被旧数据指进追问分支时，可见链在挂载点截断', () => {
+    let s = normalize(session)
+    s = appendBranch(s, 'm1', [{ id: 'a1', role: 'assistant', content: '答一', parts: [], createdAt: 2, status: 'done' } as never])
+    // 模拟旧数据：selectedChildId 已被追问分支改写（修复前 askAt 的行为）
+    s = {
+      ...s,
+      messages: [
+        ...s.messages.map((m) => (m.id === 'a1' ? { ...m, selectedChildId: 'q1' } : m)),
+        { id: 'q1', role: 'user', content: '追问', files: [], createdAt: 3, parentId: 'a1', ask: { anchorText: '答', anchorMessageId: 'a1' } } as UserMessage,
+      ],
+    }
+    expect(getVisibleMessages(s).map((m) => m.id)).toEqual(['m1', 'a1'])
+  })
 })
 
 function normalize(s: Session): Session {

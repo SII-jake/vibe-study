@@ -6,6 +6,7 @@ import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/er
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
+import { rootedConversation } from './rootedConversation.js'
 import * as db from './db.js'
 import { getSyncBaseVersion, mergeSessions, schedulePush, syncOnce } from './sync.js'
 import {
@@ -581,7 +582,12 @@ export const stopReply = (sessionId: string) => getStreamController(sessionId)?.
  * 提交指定会话的最新草稿；null 表示新建会话。
  * 同步接收成功才清空草稿，附件原件由会话接管；保存失败仍通过保存入口重试。
  */
-export const sendMessage = (targetSessionId: string | null) => {
+export const sendMessage = (
+  targetSessionId: string | null,
+  // 真机反馈③：lane 内发送的挂载 lane 根——无理由阻断时消息挂在该 lane
+  // 可见链尾；缺省（null）保持旧口径 = 主线可见链尾。
+  laneRootId: string | null = null,
+) => {
   if (get().importingHistory || !get().ready) {
     return false
   }
@@ -619,7 +625,9 @@ export const sendMessage = (targetSessionId: string | null) => {
   if (!current) {
     return false
   }
-  const history = getVisibleMessages(current)
+  const history = getVisibleMessages(
+    laneRootId ? rootedConversation(current, laneRootId) ?? current : current,
+  )
   const question: UserMessage = {
     id: createId(),
     role: 'user',
@@ -689,8 +697,11 @@ export const askAt = (
   sessionId: string,
   anchorMessageId: string,
   anchorText: string,
-  question: string
-): boolean => {
+  question: string,
+  fragmentIndex: number | null = null
+  // 返回新建追问分支的根（用户提问）消息 id——pane 规则 planPlaceChild 的 childId
+  // 唯一来源；校验不满足时返回 false，布尔判真语义保持（既有调用不算 break）
+): string | false => {
   if (get().importingHistory || !get().ready || getStreamController(sessionId)) {
     return false
   }
@@ -710,7 +721,7 @@ export const askAt = (
     content: `你在回答中写过这段内容：\n\n> ${anchorText.trim()}\n\n我的追问：${question.trim()}`,
     files: [],
     createdAt: now,
-    ask: { anchorText: anchorText.trim(), anchorMessageId },
+    ask: { anchorText: anchorText.trim(), anchorMessageId, fragmentIndex },
   }
   const reply = createReply()
   updateSession(sessionId, (s) => ({
@@ -728,7 +739,7 @@ export const askAt = (
     cursor = parentId ? (session.messages.find((m) => m.id === parentId) as Message | undefined) : undefined
   }
   void streamReply(sessionId, reply, { history, question: userQuestion })
-  return true
+  return userQuestion.id
 }
 
 /** 编辑提问后新增同父版本，保留原文件；旧问题的所有回答与后续对话仍可切回。 */
@@ -934,7 +945,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   }
 
   const pending = new Map<string, FileAttachment>()
-  for (const [user] of getContextRounds(request.history).toReversed()) {
+  for (const [user] of [...getContextRounds(request.history)].reverse()) {
     for (const file of user.files) {
       if (!file.serverId && !serverIds.has(file.id) && !pending.has(file.id)) {
         pending.set(file.id, file)

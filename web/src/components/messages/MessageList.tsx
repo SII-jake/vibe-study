@@ -9,7 +9,7 @@ import { selectMessageVersion } from '../../services/chat/store.js'
 import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
 import { AssistantMessage } from './AssistantMessage.js'
-import { AskBranches } from './AskBranches.js'
+import { buildFragmentAskList } from './fragmentAsks.js'
 import { ScrollToBottomContext } from './scrollContext.js'
 import { UserMessage } from './UserMessage.js'
 import type { Message } from '../../services/chat/types.js'
@@ -38,10 +38,20 @@ export const MessageList = ({
   session,
   streaming,
   footer,
+  onChildOpen,
+  returnAnchor,
 }: {
   session: Session
   streaming: boolean
   footer: React.ReactNode
+  /** 分支卡点入右栏（decisions/2026-11-19 §二.5）：
+   *  携带该会话中 ask 分支的根用户消息 id，由 SessionView 接进 pane 规则。
+   *  缺席时退回旧行为（同级版本切换）。 */
+  onChildOpen?: (nodeId: string) => void
+  /** 「返回到这里」高亮的来源锚点（§二.5 第三轮修订）：仅 anchorMessageId
+   *  命中的那条消息注入其 anchorText，由渲染层内联标记（与下划线同位同
+   *  粒度，不再用块级背景块）；其余消息不注入，高亮至多一处 */
+  returnAnchor?: { anchorMessageId: string; anchorText: string } | null
 }) => {
   const isMobile = useIsMobile()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -161,8 +171,8 @@ export const MessageList = ({
                   onSelectVersion={selectVersion}
                 />
               ) : (
-                // 回答下方挂并列追问区：该回答下每条被选中追问过的原文并排陈列卡片；
-                // 追问的回答自身也能再生一层卡片，嵌套追问天然成立（key 换外层 div 保持挂载稳定）
+                // 追问引子走渲染层（§二.5 真机反馈修订：卡按 anchorText 命中块挂载，
+                // 消息级 AskBranches 兜底通道退役）；嵌套追问天然成立（key 保持挂载稳定）
                 <div key={message.id}>
                   <AssistantMessage
                     sessionId={session.id}
@@ -172,11 +182,13 @@ export const MessageList = ({
                     busy={streaming}
                     versions={versions.get(message.id) ?? EMPTY_VERSIONS}
                     onSelectVersion={selectVersion}
-                  />
-                  <AskBranches
-                    session={session}
-                    parentId={message.id}
-                    onOpen={(messageId) => selectVersion(messageId, 0)}
+                    fragmentAsk={buildFragmentAskList(session, message.id)}
+                    onChildOpen={onChildOpen}
+                    returnAnchorText={
+                      returnAnchor && returnAnchor.anchorMessageId === message.id
+                        ? returnAnchor.anchorText
+                        : null
+                    }
                   />
                 </div>
               )

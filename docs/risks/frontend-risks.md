@@ -2,6 +2,35 @@
 
 新条目加在本节最上方。
 
+## jsdom 测试里改 useIsMobile 断点须文件级桩——模块顶层捕获的 matchMedia 用例内重定义无效
+
+- 症状：测试用 `Object.defineProperty(window, 'matchMedia', …)` 把 mobile 断点翻成 true，
+  组件行为却仍是桌面分支，断言怎么改都过不了。
+- 根因：`web/src/app/viewport.ts` 的 `const query = window.matchMedia(...)` 在**模块顶层求值**，
+  import 时即捕获当时的 query 对象；用例内重定义只换了 `window.matchMedia` 这个函数，
+  已捕获的 `query` 引用纹丝不动。
+- 做法：移动端断点测试单独开文件，用 `vi.hoisted` 在静态 import 前把桩钉死
+  （`tests/session-view-mobile.test.tsx` 就是实例）；同文件混双断点必然有一个是假的。
+
+## 内联 object literal props 类型不报缺失解构——回调丢了 tsc 也不响
+
+- 症状：React 组件给 props 类型加了一个回调字段，调用方也传了，但测试里点击完全无声；
+  逐环插桩发现回调到达目标按钮时是 undefined，tsc 全程无报错。
+- 根因：组件 props 类型写成**内联 object literal**（`{ a, b }: { a: T; b: U }`）时，
+  TypeScript 不检查解构签名里**漏掉**的字段——类型里声明了 `onAskOpen`，
+  解构里只有 `nodes, loading, fragmentAsk` 漏了解构它，照样通过。
+- 做法：给此类组件改 props 时同时改解构与类型两处；测试里对"点击无声"类问题，
+  第一反应插桩 lambda/mocking 上层 mock 二分（mock 上层通、真实层哑 = 断点在两层之间）。
+
+## 卡片换形态后旧断言误点同 selector 的新卡——双形态并存期间测试抓错目标
+
+- 症状：给同一语义入口换了新实现（新类名/新位置），旧测试仍 `querySelectorAll('[data-ask-card]')`
+  抓第一张，断言突然挂或行为全变。
+- 根因：新旧形态并存期（旧作兼容兜底、新为正式路径）共用同一 `data-*` 选择器，
+  旧测试无差别取第一张，点到的是兜底旧卡，走旧代码路径而不是被测新路径。
+- 做法：旧形态兜底只兜**数据缺失**的旧记录（如 AskBranches 只陈列 fragmentIndex 未落盘的记录），
+  其余选择器一律分开；测试显式用形态特征定位（`[data-fragment-index] [data-ask-card]`）。
+
 ## e2e 假服务端拦截破坏同步不变量：高版本空数据 reload 后清空本地 IndexedDB
 
 - 症状：e2e 链路前半段正常，中途一次 reload 后正文片段/锚点/分支卡片全部归零，

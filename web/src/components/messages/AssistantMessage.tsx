@@ -5,6 +5,7 @@ import { IconRefreshOutline16, IconWarningOutline16 } from '../base/icons.js'
 import { describeReply } from '../../services/chat/describe.js'
 import { canContinueReply } from '../../services/chat/reply.js'
 import { continueReply, regenerateReply } from '../../services/chat/store.js'
+import type { FragmentAskEntry } from './fragmentAsks.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import type { AssistantMessage as AssistantMessageType } from '../../services/chat/types.js'
 import { openSettings } from '../settings/settingsDialogState.js'
@@ -34,6 +35,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   busy,
   versions,
   onSelectVersion,
+  fragmentAsk,
+  onChildOpen,
+  returnAnchorText,
 }: {
   sessionId: string
   message: AssistantMessageType
@@ -42,6 +46,13 @@ export const AssistantMessage = memo(function AssistantMessage({
   busy: boolean
   versions: MessageVersions
   onSelectVersion: SelectMessageVersion
+  /** 步骤五（§二.5 + 真机反馈修订）：片段级追问引子——定位交渲染层按
+   *  anchorText 在块文本内精确完成（存的 fragmentIndex 仅兼容不作依据） */
+  fragmentAsk?: FragmentAskEntry[]
+  /** 点引子卡：子对话进右栏（桌面）/下潜（手机） */
+  onChildOpen?: (nodeId: string) => void
+  /** 「返回到这里」锚点原文（§二.5）：仅来源锚点消息注入 */
+  returnAnchorText?: string | null
 }) {
   const t = useTranslate()
   const view = useReplyView(message, streaming)
@@ -77,6 +88,9 @@ export const AssistantMessage = memo(function AssistantMessage({
             cacheKey={message.id}
             disableLink={false}
             sources={view.sources}
+            fragmentAsk={fragmentAsk}
+            onAskOpen={onChildOpen}
+            returnAnchorText={returnAnchorText}
           />
         </div>
       ) : null}

@@ -19,6 +19,7 @@ import android.net.http.SslError;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 
@@ -43,6 +44,10 @@ import java.security.cert.X509Certificate;
  *    nginx 自签证书，Android WebView 默认对不受信证书**静默断连**——启动页选
  *    这个地址手机"完全没有任何反应"。壳必须显式放行**白名单 host + 证书指纹
  *    双匹配**的那一台；其余任何 SSL 错误照常拦掉，不放行陌生自签站。
+ * 4) 系统返回键分层（decisions/2026-11-19 §三.1）：有追问层开着时先退层、
+ *    再退应用。前端 SessionView 通过 VibeBackKey 桥实时同步"有层可退"，
+ *    按键时壳只同步读这一眼——有层则向页面发 vite-back 自定义事件让前端
+ *    退一层；无层则交还系统默认（WebView 历史回退 / finish）。
  */
 public class MainActivity extends BridgeActivity {
 
@@ -53,6 +58,9 @@ public class MainActivity extends BridgeActivity {
 
     /** 页面回写：当前焦点是否在可编辑元素（输入框/文本域/contenteditable） */
     private volatile boolean editableFocused = false;
+
+    /** 页面回写：当前是否还有追问层可退（SessionView 同步） */
+    private volatile boolean vibeHasBackLayer = false;
 
     @Override
     public void onCreate(android.os.Bundle savedInstanceState) {
@@ -76,6 +84,34 @@ public class MainActivity extends BridgeActivity {
                 }
             }
         });
+
+        // 返回键先问前端，不直接 finish（注释 4）：onBackPressedDispatcher 是
+        // BridgeActivity 自带的注册口，本回调随 Activity 生命周期存活。
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (isChatPage() && vibeHasBackLayer) {
+                    // 有层可退：把决定交给前端——vite-back 事件由 SessionView 消费并退层
+                    getBridge().getWebView().evaluateJavascript(
+                        "document.dispatchEvent(new Event('vite-back', { cancelable: true }))", null);
+                    return;
+                }
+                // 无层可退或还在启动页：交还 dispatcher 原本的行为
+                // （WebView 历史回退/finish）——先摘回调防自我递归，分发后再挂回
+                setEnabled(false);
+                getOnBackPressedDispatcher().onBackPressed();
+                if (!isFinishing()) {
+                    getBridge().getWebView().post(() -> setEnabled(true));
+                }
+            }
+        });
+    }
+
+    /** 当前是否在远程会话页（boot.js 启动阶段是 file:// 本地资产，不算会话页）。 */
+    private boolean isChatPage() {
+        if (getBridge() == null || getBridge().getWebView() == null) return false;
+        String url = getBridge().getWebView().getUrl();
+        return url != null && url.startsWith("http");
     }
 
     /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
@@ -101,6 +137,14 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().addJavascriptInterface(new SelectionGuardBridge(), "VibeSelectionGuard");
             getBridge().getWebView().addJavascriptInterface(new AppUpdateBridge(), "VibeAppUpdate");
+            getBridge().getWebView().addJavascriptInterface(new BackKeyBridge(), "VibeBackKey");
+        }
+    }
+
+    private class BackKeyBridge {
+        @JavascriptInterface
+        public void setHasLayer(boolean hasLayer) {
+            vibeHasBackLayer = hasLayer;
         }
     }
 

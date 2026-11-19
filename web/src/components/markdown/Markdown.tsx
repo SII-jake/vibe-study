@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react'
+import type { FragmentAskEntry } from '../messages/fragmentAsks.js'
 import type { Source } from '../../services/chat/view.js'
 import { toMdAst } from '../../services/markdown/parse.js'
 import { useScrollToBottom } from '../messages/scrollContext.js'
@@ -18,6 +19,9 @@ export const Markdown = memo(function Markdown({
   className,
   disableLink,
   sources,
+  fragmentAsk,
+  onAskOpen,
+  returnAnchorText,
 }: {
   content: string
   loading: boolean
@@ -25,6 +29,12 @@ export const Markdown = memo(function Markdown({
   className?: string
   disableLink: boolean
   sources?: Source[]
+  /** 第五步（§二.5 + 真机反馈修订）：片段级追问引子与点击接线——为渲染
+   *  层的 anchorText 精确匹配做的数组（存的 fragmentIndex 仅兼容不作依据） */
+  fragmentAsk?: FragmentAskEntry[]
+  onAskOpen?: (rootId: string) => void
+  /** 「返回到这里」锚点原文（§二.5）：仅来源锚点消息注入 */
+  returnAnchorText?: string | null
 }) {
   const scrollToBottom = useScrollToBottom()
   const throttledMarkdown = useThrottleMarkdownRender(content, loading)
@@ -39,6 +49,9 @@ export const Markdown = memo(function Markdown({
       ast={ast}
       loading={loading}
       onUpdate={scrollToBottom}
+      fragmentAsk={fragmentAsk}
+      onAskOpen={onAskOpen}
+      returnAnchorText={returnAnchorText}
     />
   ) : null
 })

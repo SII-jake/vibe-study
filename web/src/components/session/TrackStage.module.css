@@ -1,0 +1,29 @@
+.stage {
+  position: relative;
+  width: 100%;
+  /* 真机反馈①（恒走 TrackStage 后整页无法滑动）：显式吃掉头部之下剩余高，
+     让内层滚动链重新获得确定高度——不再依赖隐式 shrink 的浏览器差异 */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 位移只在本容器一次 translateX（结构红线：lane 不自带 transform） */
+.track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.24s ease;
+  will-change: transform;
+}
+
+.lane {
+  flex-shrink: 0;
+  height: 100%;
+  overflow-y: auto;
+  min-width: 0;
+  /* 真机反馈①：lane 是 MessageList 的直接父容器——flex 列让内层
+     .container(mobile overflow:hidden)+.scroll(overflow-y:auto) 的
+     父子接力重新拿到确定高度，内容可上下滚动查看 */
+  display: flex;
+  flex-direction: column;
+}

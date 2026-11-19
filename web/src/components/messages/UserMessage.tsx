@@ -112,7 +112,16 @@ export const UserMessage = memo(function UserMessage({
         </div>
       ) : (
         <>
-          {message.content ? <div className={styles.bubble}>{message.content}</div> : null}
+          {/* 追问消息（§二.5 真机反馈）：content 是给模型的协议格式
+              （"你在回答中写过这段内容…我的追问：X"），文字泡只呈现问题本体；
+              编辑态仍以完整 content 起草，保持"编辑的是真实数据"。 */}
+          {message.content ? (
+            <div className={styles.bubble}>
+              {message.ask
+                ? (message.content.split('我的追问：').at(-1)?.trim() ?? message.content)
+                : message.content}
+            </div>
+          ) : null}
           <div className={styles.bottom}>
             <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
               {message.content ? <CopyButton text={message.content} /> : null}

@@ -1,27 +1,12 @@
-// @vitest-environment jsdom
 /**
- * 选择追问 UI：选区落在回答正文时浮现追问按钮；
- * 同一回答下的多条追问并排陈列、可点进对应分支。
+ * 追问引子数据层：buildFragmentAskList 按父消息反查其下追问，
+ * 剥出"我的追问："之后的提问本体；定位 anchorText 交渲染层精确匹配
+ * （AskBranches 消息级兜底组件已于真机反馈第二轮退役——渲染层按文本
+ * 挂载失败时统一沉兜底列，不再有消息级备用通道）。
  */
-import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AskBranches } from '../web/src/components/messages/AskBranches'
+import { describe, expect, it } from 'vitest'
+import { buildFragmentAskList } from '../web/src/components/messages/fragmentAsks'
 import type { Session, UserMessage } from '../web/src/services/chat/types'
-
-;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
-let container: HTMLDivElement
-let root: Root
-beforeEach(() => {
-  container = document.createElement('div')
-  document.body.append(container)
-  root = createRoot(container)
-})
-afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-})
 
 const parentAssistant = {
   id: 'a1',
@@ -45,31 +30,40 @@ function askChild(id: string, anchorText: string, question: string, createdAt: n
   }
 }
 
-describe('AskBranches（并列分支区）', () => {
-  it('同一回答下的多条追问并排陈列：锚点原文与问题都可见', () => {
+describe('buildFragmentAskList（追问引子反查）', () => {
+  it('同一回答下的多条追问：按序反查、question 剥出系统前缀、anchorText 原样带透', () => {
     const session: Session = {
       id: 's1', title: '', createdAt: 1, updatedAt: 1,
       messages: [
         parentAssistant,
-        askChild('q1', '开头这段', '能展开吗', 3),
-        askChild('q2', '结尾那句', '是线性吗', 4),
+        askChild('q1', '复利', '能展开吗', 3),
+        askChild('q2', '利息', '是线性吗', 4),
       ],
     }
-    act(() => {
-      root.render(
-        <AskBranches session={session} parentId="a1" onOpen={() => {}} />
-      )
-    })
-    const text = container.textContent ?? ''
-    expect(text).toContain('开头这段')
-    expect(text).toContain('能展开吗')
-    expect(text).toContain('结尾那句')
-    expect(text).toContain('是线性吗')
-    // 两条追问卡片同时存在（不是切换器）
-    expect(container.querySelectorAll('[data-ask-card]').length).toBe(2)
+    const list = buildFragmentAskList(session, 'a1')
+    expect(list.length).toBe(2)
+    expect(list[0]).toMatchObject({ rootId: 'q1', question: '能展开吗', anchorText: '复利' })
+    expect(list[1]).toMatchObject({ rootId: 'q2', question: '是线性吗', anchorText: '利息' })
+    // 同锚点的 branchCount：各自锚点唯一时为 1
+    expect(list[0]!.branchCount).toBe(1)
   })
 
-  it('非追问型子消息（regenerate/edit 版本）不进入分支区', () => {
+  it('同一段原文被追两次：branchCount 记 2（引子卡"N 条追问"口径）', () => {
+    const session: Session = {
+      id: 's1', title: '', createdAt: 1, updatedAt: 1,
+      messages: [
+        parentAssistant,
+        askChild('q1', '复利', '能展开吗', 3),
+        askChild('q2', '复利', '换个角度', 4),
+      ],
+    }
+    const list = buildFragmentAskList(session, 'a1')
+    expect(list.length).toBe(2)
+    expect(list[0]!.branchCount).toBe(2)
+    expect(list[1]!.branchCount).toBe(2)
+  })
+
+  it('非追问型子消息（regenerate/edit 版本）不进引子列表', () => {
     const versionMessage: UserMessage = {
       id: 'v1', role: 'user', content: '什么是复利（改）', files: [], createdAt: 3, parentId: 'a1',
     }
@@ -77,23 +71,6 @@ describe('AskBranches（并列分支区）', () => {
       id: 's1', title: '', createdAt: 1, updatedAt: 1,
       messages: [parentAssistant, versionMessage],
     }
-    act(() => {
-      root.render(<AskBranches session={session} parentId="a1" onOpen={() => {}} />)
-    })
-    expect(container.innerHTML).toBe('')
-  })
-
-  it('点追问卡片回调对应消息 id（切到该分支）', () => {
-    const session: Session = {
-      id: 's1', title: '', createdAt: 1, updatedAt: 1,
-      messages: [parentAssistant, askChild('q1', '开头这段', '能展开吗', 3)],
-    }
-    let opened = ''
-    act(() => {
-      root.render(<AskBranches session={session} parentId="a1" onOpen={(id) => { opened = id }} />)
-    })
-    const card = container.querySelector('[data-ask-card]') as HTMLButtonElement
-    act(() => { card.click() })
-    expect(opened).toBe('q1')
+    expect(buildFragmentAskList(session, 'a1')).toEqual([])
   })
 })

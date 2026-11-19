@@ -22,7 +22,9 @@
   width: 2px;
   height: 5px;
   border-radius: 1px;
-  background-color: var(--dsw-alias-button-info-hover, #679efe);
+  /* style-guard：原 --dsw-alias-button-info-hover 在 theme.css 未定义，
+     var() 解析失败一直走 fallback 色；改用已定义的品牌主色 */
+  background-color: var(--dsw-alias-brand-primary);
   transform-origin: center;
   will-change: transform;
 }

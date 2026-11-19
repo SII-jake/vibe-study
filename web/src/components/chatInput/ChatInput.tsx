@@ -35,12 +35,32 @@ import { useTranslate } from '../../i18n/index.js'
 import styles from './ChatInput.module.css'
 
 /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
-export const ChatInput = memo(function ChatInput({ sessionId }: { sessionId: string | null }) {
+export const ChatInput = memo(function ChatInput({
+  sessionId,
+  laneRootId = null,
+}: {
+  sessionId: string | null
+  /** lane 内发送的挂载 lane 根（真机反馈③）：追问层里发送挂该层链尾，
+   *  缺省（主线）保持旧口径挂主线可见链尾；key 不含它——切 lane 不重置草稿。 */
+  laneRootId?: string | null
+}) {
   // 切换目标时释放录音、转写和 DOM 状态；文字与附件由草稿服务保留。
-  return <Input key={sessionId === null ? 'new' : `session:${sessionId}`} sessionId={sessionId} />
+  return (
+    <Input
+      key={sessionId === null ? 'new' : `session:${sessionId}`}
+      sessionId={sessionId}
+      laneRootId={laneRootId}
+    />
+  )
 })
 
-const Input = ({ sessionId }: { sessionId: string | null }) => {
+const Input = ({
+  sessionId,
+  laneRootId = null,
+}: {
+  sessionId: string | null
+  laneRootId?: string | null
+}) => {
   const t = useTranslate()
   const draft = useDrafts((state) => state.drafts.get(sessionId) ?? EMPTY_DRAFT)
   const { text, attachments } = draft
@@ -141,7 +161,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       return
     }
     // 文本与上传完成态由提交动作读取最新快照，不使用上一次渲染的草稿。
-    if (!ensureApiKey() || !sendMessage(sessionId)) {
+    if (!ensureApiKey() || !sendMessage(sessionId, laneRootId)) {
       return
     }
     stopReadAloud()
