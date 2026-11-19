@@ -39,7 +39,9 @@ export function AskPopover({
       <div
         className={styles.popover}
         data-ask-panel
-        style={position ? { top: position.top, left: position.left } : undefined}
+        // 锚定时必须撤销样式基的居底形态（transform: translateX(-50%) 会把面板左移
+        // 半宽，选区靠左时左半边飞出视口——手机实测缺陷；bottom 同理须复位）
+        style={position ? { top: position.top, left: position.left, transform: 'none', bottom: 'auto' } : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.anchor}>“{anchorText}”</div>

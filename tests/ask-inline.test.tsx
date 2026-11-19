@@ -45,6 +45,21 @@ describe('内嵌化：弹出层遮罩去除', () => {
   })
 })
 
+describe('锚定定位的基线撤销（手机实测：左半边飞出屏幕）', () => {
+  it('带 position 时撤销居底基线的 transform 与 bottom，面板完整落在视口内', () => {
+    // 缺陷机理：.popover 默认形态带 transform: translateX(-50%) + bottom: calc(...)（居底基线），
+    // 锚定只覆盖 top/left，transform/bottom 残留——面板被左移半宽，选区靠左时左半边飞出
+    act(() => {
+      root.render(<AskPopover anchorText="原文" position={{ top: 100, left: 8 }} onSubmit={() => {}} onClose={() => {}} />)
+    })
+    const panel = container.querySelector('[data-ask-panel]') as HTMLElement
+    expect(panel.style.transform).toBe('none')
+    expect(panel.style.bottom).toBe('auto')
+    expect(panel.style.top).toBe('100px')
+    expect(panel.style.left).toBe('8px')
+  })
+})
+
 describe('锚点高亮', () => {
   it('带 askHighlight 的段落容器渲染 DS 风格底色标记', () => {
     act(() => {
