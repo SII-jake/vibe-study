@@ -21,7 +21,17 @@ const Html = memo(function Html({ value }: { value: string }) {
   return <span className="ds-markdown-html">{value}</span>
 })
 
-const List = memo(function List({ node, loading }: { node: ListNode; loading: boolean }) {
+const List = memo(function List({
+  node,
+  loading,
+  anchors,
+}: {
+  node: ListNode
+  loading: boolean
+  /** 划线锚点透传（真机反馈②整改）：用户常以"选中列表项一部分"发起追问——
+   *  锚点继续向内层 phrasing 传递，li 内命中即打 data-ask-referenced */
+  anchors?: AnchorSpec[]
+}) {
   const ListTag = node.ordered ? 'ol' : 'ul'
   return (
     <ListTag start={node.ordered ? node.start || undefined : undefined}>
@@ -35,7 +45,11 @@ const List = memo(function List({ node, loading }: { node: ListNode; loading: bo
               // □ U+25A1 / ☑ U+2611
               <span className="ds-markdown-task-checkbox">{checked ? '☑  ' : '□  '}</span>
             ) : null}
-            <MarkdownBlockContentOrDefinitionContent nodes={child.children} loading={loading} />
+            <MarkdownBlockContentOrDefinitionContent
+              nodes={child.children}
+              loading={loading}
+              nestedAnchors={anchors}
+            />
           </li>
         )
       })}
@@ -245,10 +259,22 @@ const TextContent = memo(function TextContent({ children }: { children: string }
 
 
 /** 顶层块的纯文本（用于 anchorText 精确匹配）——与 phrasingTextOf 同一口径
- *  （跨 strong/em/inlineCode 拼接），只收 paragraph/heading，其余块返回 ''。 */
+ *  （跨 strong/em/inlineCode 拼接）；paragraph/heading 直取，list 取列表项
+ *  子孙里段落文本拼接，其余块返回 ''。 */
 const blockTextOf = (node: { type: string; children?: unknown[] }): string => {
-  if (node.type !== 'paragraph' && node.type !== 'heading') return ''
-  return ((node.children ?? []) as PhrasingContent[]).map(phrasingTextOf).join('')
+  if (node.type === 'paragraph' || node.type === 'heading') {
+    return ((node.children ?? []) as PhrasingContent[]).map(phrasingTextOf).join('')
+  }
+  if (node.type === 'list') {
+    return ((node.children ?? []) as Array<{ children?: unknown[] }>)
+      .flatMap((item) =>
+        ((item.children ?? []) as Array<{ type: string; children?: unknown[] }>)
+          .filter((child) => child.type === 'paragraph')
+          .map((child) => (child.children as PhrasingContent[]).map(phrasingTextOf).join('')),
+      )
+      .join('\n')
+  }
+  return ''
 }
 
 /** 追问引子卡元素——命中块挂块下、脱靶沉正文末尾同一形态（第二轮真机反馈②）。 */
@@ -280,6 +306,7 @@ const MarkdownBlockContentOrDefinitionContent = memo(
     fragmentAsk,
     onAskOpen,
     returnAnchorText,
+    nestedAnchors,
   }: {
     nodes: Array<BlockContent | DefinitionContent>
     loading: boolean
@@ -299,6 +326,9 @@ const MarkdownBlockContentOrDefinitionContent = memo(
     /** 「返回到这里」的锚点原文（§二.5）：命中的锚点区间加打 data-ask-return——
      *  与下划线同位同粒度，不再用块级背景（第三轮真机反馈：背景块范围过大）。 */
     returnAnchorText?: string | null
+    /** 嵌套层划线锚点（真机反馈②）：list/blockquote 递归渲染时带上，内层
+     *  phrasing 继续打 data-ask-referenced——锚点落在列表项内不再整条丢线。 */
+    nestedAnchors?: AnchorSpec[]
   }) {
     // 第二轮真机反馈①②：挂载点按 anchorText 在块文本内精确匹配——
     // 存的 fragmentIndex 仅作存储兼容（正文块序漂移后按索引挂必错位），
@@ -306,7 +336,7 @@ const MarkdownBlockContentOrDefinitionContent = memo(
     let pendingAsks = topLevel ? [...(fragmentAsk ?? [])] : []
     const blocks: ReactNode[] = []
     nodes.forEach((node, index) => {
-      let anchors: AnchorSpec[] | undefined
+      let anchors2: AnchorSpec[] | undefined
       let blockAsks: FragmentAskEntry[] = []
       if (topLevel) {
         const text = blockTextOf(node)
@@ -315,7 +345,7 @@ const MarkdownBlockContentOrDefinitionContent = memo(
           if (hits.length > 0) {
             pendingAsks = pendingAsks.filter((ask) => !hits.includes(ask))
             blockAsks = hits
-            anchors = [...new Set(hits.map((ask) => ask.anchorText))].map((text2) => ({
+            anchors2 = [...new Set(hits.map((ask) => ask.anchorText))].map((text2) => ({
               text: text2,
               isReturn: text2 === returnAnchorText,
             }))
@@ -323,6 +353,10 @@ const MarkdownBlockContentOrDefinitionContent = memo(
         }
       }
       const asks = blockAsks
+      // 划线的作用判定分两层：顶层块以自身 blockTextOf 匹配出的 anchors 为准；
+      // 嵌套层（list li / blockquote 递归渲染）沿 nestedAnchors 继续向下传——
+      // 划线本质发生在内层 phrasing，不在列表/lane 容器这层凭空生效。
+      const anchors = topLevel ? anchors2 : nestedAnchors
       const output = (() => {
       switch (node.type) {
         case 'math':
@@ -363,7 +397,7 @@ const MarkdownBlockContentOrDefinitionContent = memo(
         case 'table':
           return <Table node={node} key={index} />
         case 'list':
-          return <List key={index} node={node} loading={loading} />
+          return <List key={index} node={node} loading={loading} anchors={anchors} />
         default:
           // 脚注与定义已在解析时换成段落
           return null

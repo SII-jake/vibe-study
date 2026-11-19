@@ -37,6 +37,9 @@ export const SessionView = ({
   const t = useTranslate()
   const isMobile = useIsMobile()
   const title = session.title || t('untitledChat')
+  // 追问层的标题行内容（真机反馈①）：lane 根的追问标题（ask.title，模型生成
+  // 见 store 流式收尾）→ 无标题时剥出问题本体 → 兜底主线标题。
+  // pane 在下方声明，这里只准备纯函数。
   const [askSelection, setAskSelection] = useState<AskSelection | null>(null)
   // 输入浮层的开合与暂存的选区分开管理：操作条→浮层是两步，关闭浮层二段式都清
   const [asking, setAsking] = useState(false)
@@ -58,6 +61,16 @@ export const SessionView = ({
   } | null>(null)
   // 切换会话时 pane 跟随新主线重根
   const sessionRootId = session.rootMessageId ?? null
+  // 追问层的标题行内容（真机反馈①③）：lane 根的追问标题（ask.title，模型
+  // 在该轮回答流尾部按需生成）→ 未生成时剥出问题本体 → 主线标题兜底。
+  const laneRootMessage =
+    pane.centerNodeId && pane.centerNodeId !== sessionRootId
+      ? session.messages.find((m) => m.id === pane.centerNodeId)
+      : undefined
+  const laneAsk = laneRootMessage?.role === 'user' ? laneRootMessage : undefined
+  const headerTitle = laneAsk
+    ? (laneAsk.ask?.title ?? laneAsk.content.split('我的追问：').at(-1)?.trim() ?? title)
+    : title
   useEffect(() => {
     setPane({ centerNodeId: sessionRootId, rightNodeId: null })
     setAsking(false)
@@ -212,7 +225,7 @@ export const SessionView = ({
     const isCenter = laneNodeId === pane.centerNodeId
     return (
       <>
-        {isCenter && centerPath.length > 1 ? (
+        {!isMobile && isCenter && centerPath.length > 1 ? (
           <div className={styles.laneHeader} data-center-header>
             <button type="button" onClick={goBack}>
               返回上一级
@@ -233,7 +246,16 @@ export const SessionView = ({
   return (
     <div ref={containerRef} className={styles.view}>
       {isMobile ? (
-        <MobileHeader title={title} />
+        <MobileHeader
+          title={headerTitle}
+          start={
+            pane.centerNodeId !== sessionRootId ? (
+              <button type="button" className={styles.headerBack} onClick={goBack}>
+                返回上一级
+              </button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className={styles.header}>
           <div className={clsx(styles.title, siderCollapsed && styles.withCollapsedSider)}>

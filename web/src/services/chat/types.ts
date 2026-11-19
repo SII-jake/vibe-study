@@ -49,6 +49,9 @@ export type UserMessage = MessageBranch & {
     /** 片段级锚点（decisions/2026-11-19 §一）：回答 AST 顶层块序号；
      * 旧数据/消息级选区为 null，渲染与定位按可选字段处理，不迁移。 */
     fragmentIndex?: number | null
+    /** 追问标题（真机反馈③）：模型为该轮追问生成的短标题，引子卡与
+     *  lane 顶行展示的优先口径；未生成/失败时回退问题本体截断。 */
+    title?: string
   }
 }
 

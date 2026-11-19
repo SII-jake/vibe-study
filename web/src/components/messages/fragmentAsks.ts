@@ -10,7 +10,8 @@ import type { Session, UserMessage } from '../../services/chat/types.js'
 export interface FragmentAskEntry {
   /** 追问分支的根用户消息 id（pane 规则/取链的 nodeId） */
   rootId: string
-  /** 引子卡展示文本：用户那次追问的提问 */
+  /** 引子卡展示文本（真机反馈③）：ask.title（模型生成的追问短标题）
+   *  优先；未生成/失败时回退用户那次提问的本体 */
   question: string
   /** 被追的原文——渲染层按它在当前块文本里精确匹配落点 */
   anchorText: string
@@ -27,10 +28,11 @@ function isAskMessage(message: unknown): message is UserMessage & { ask: { ancho
 export function buildFragmentAskList(session: Session, anchorMessageId: string): FragmentAskEntry[] {
   const asks = session.messages.filter(
     (m) => m.parentId === anchorMessageId && isAskMessage(m),
-  ) as (UserMessage & { ask: { anchorText: string } })[]
+  ) as (UserMessage & { ask: { anchorText: string; title?: string } })[]
   const entries = asks.map((m) => ({
     rootId: m.id,
-    question: m.content.split('我的追问：').at(-1)?.trim() ?? m.content,
+    question:
+      m.ask.title ?? (m.content.split('我的追问：').at(-1)?.trim() ?? m.content),
     anchorText: m.ask.anchorText,
     branchCount: 0,
   }))

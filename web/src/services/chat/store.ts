@@ -58,8 +58,10 @@ const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
   return tools
 }
 
-/** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
-const titleRequests = new Set<AbortController>()
+/** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。
+ *  值（真机反馈③）：null = 会话主线标题；分支根 user 消息 id = 该追问的标题，
+ *  落盘写该消息 ask.title（引子卡/lane 顶行展示的短标题同一来源）。 */
+const titleRequests = new Map<AbortController, string | null>()
 
 type ChatState = {
   ready: boolean
@@ -1062,8 +1064,11 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
  */
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
   const controller = new AbortController()
-  if (!getSession(sessionId)?.title) {
-    titleRequests.add(controller)
+  // 真机反馈③：追问分支（question 带 ask）即使会话已有标题也申请——
+  // 生成的 title 落该轮追问的 ask.title，引子卡展示与标题行同源。
+  const askTitleFor = request.question.ask ? request.question.id : null
+  if (!getSession(sessionId)?.title || askTitleFor !== null) {
+    titleRequests.set(controller, askTitleFor)
   }
   set((state) => ({ streaming: { ...state.streaming, [sessionId]: controller } }))
   let reply = initial
@@ -1122,7 +1127,20 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             !get().importingHistory
           ) {
             const title = event.delta.title.trim()
-            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+            const askTitleFor = titleRequests.get(controller)
+            if (askTitleFor) {
+              // 追问标题：写分支根 user 消息的 ask.title（不动会话标题）
+              updateSession(sessionId, (session) => ({
+                ...session,
+                messages: session.messages.map((m) =>
+                  m.id === askTitleFor && m.role === 'user' && m.ask && !m.ask.title
+                    ? { ...m, ask: { ...m.ask, title } }
+                    : m
+                ),
+              }))
+            } else {
+              updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+            }
             titleRequests.delete(controller)
           }
           reply = applyEvent(reply, event, Date.now(), blockIndexes)

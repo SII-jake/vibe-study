@@ -108,3 +108,17 @@
   height: 100%;
   min-height: 0;
 }
+
+/* 标题行内「返回上一级」（真机反馈①）：与标题同行的小型按钮，不再独占一行 */
+.headerBack {
+  flex-shrink: 0;
+  min-height: 28px;
+  margin-left: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}

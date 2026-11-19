@@ -430,6 +430,55 @@ describe('片段级引子卡 + 下划线 + 返回到这里高亮（第五步）'
   }, 20000)
 })
 
+// 第三轮改判前实证：用户高频场景是 AI 用列表作答——锚点落在列表项文本里。
+// 此前 blockTextOf 只认 paragraph/heading，list 块既匹配不到锚点
+// （卡沉兜底列）也打不上划线（嵌套层不传 anchor）——划线反复返工的根因。
+describe('划线覆盖：锚点落在 list 项内也精确定点', () => {
+  it('列表项里的锚点：划线打在 li 内、卡挂列表块下、不沉兜底列', async () => {
+    const { useChatStore } = await import('../web/src/services/chat/store.js')
+    const session: Session = {
+      id: 's6',
+      title: '列表锚点',
+      createdAt: 1,
+      updatedAt: 1,
+      rootMessageId: 'u1',
+      messages: [
+        { id: 'u1', role: 'user', content: '开头问', files: [], createdAt: 1, parentId: null, selectedChildId: 'a1' },
+        {
+          id: 'a1', role: 'assistant', createdAt: 2, model: null, prefix: true, status: 'done', parentId: 'u1',
+          blocks: [{ type: 'text' as const, text: '开头段。\n\n- 第一条目内容\n- 第二条目内容' }],
+        } as any,
+        {
+          id: 'q1', role: 'user', createdAt: 3, parentId: 'a1', selectedChildId: 'r1',
+          content: '你在回答中写过这段内容：\n\n> 第一条目\n\n我的追问：条目追问',
+          files: [],
+          ask: { anchorText: '第一条目', anchorMessageId: 'a1', fragmentIndex: 1 },
+        },
+        {
+          id: 'r1', role: 'assistant', createdAt: 4, model: null, prefix: true, status: 'done', parentId: 'q1',
+          blocks: [{ type: 'text' as const, text: '条目答。' }],
+        } as any,
+      ],
+    }
+    useChatStore.setState({
+      ready: true, importingHistory: false,
+      sessions: [{ id: session.id, title: session.title, createdAt: 1, updatedAt: 1 }],
+      sessionCache: { [session.id]: session as never }, activeId: session.id, streaming: {},
+    })
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    const li = [...container.querySelectorAll('li')].find((el) => el.textContent?.includes('第一条目'))
+    expect(li).toBeTruthy()
+    const mark = li!.querySelector('[data-ask-referenced]')
+    expect(mark).toBeTruthy()
+    expect(mark!.textContent).toBe('第一条目')
+    // 卡挂列表所属块（不沉兜底列）
+    expect(container.querySelector('[data-ask-card]')).toBeTruthy()
+    expect(container.querySelector('[data-ask-fallback]')).toBeNull()
+  }, 20000)
+})
+
 // 第二轮真机反馈（同日）：①② 片段级定位漂移——锚点记录只存顶层块索引，
 // 下划线打在整块、卡只按存的索引挂；块文本一变（或选的是块内一小段），
 // 卡就挂到别的块甚至整条消息底部。修复口径：渲染按 anchorText 在当前
