@@ -403,13 +403,15 @@
   align-items: center;
   gap: 8px;
   margin: 10px 0 2px;
-  padding: 10px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 14px;
-  background: var(--dsw-alias-bg-layer-2);
+  padding: 8px 12px 8px 10px;
+  border: none;
+  border-left: 3px solid var(--dsw-alias-brand-primary);
+  border-radius: 0 10px 10px 0;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
   text-align: left;
   cursor: pointer;
   font: inherit;
+  font-size: 14px;
   transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

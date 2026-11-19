@@ -49,16 +49,6 @@
   );
 }
 
-.caveat {
-  width: 100%;
-  padding: 6px 0;
-  font-size: 11px;
-  line-height: 16px;
-  text-align: center;
-  color: var(--dsw-alias-label-tertiary);
-  user-select: none;
-}
-
 @media not all and (min-width: 768px) {
   .inputContainer {
     position: relative;
@@ -69,13 +59,31 @@
   }
 }
 
-/* lane 顶部「返回上一级」条（真机反馈修复——曾渲染了 div 但样式表里
- * 没有这条，按钮裸排在裸 div 上；style-guard 红线守护） */
+/* lane 顶部「返回上一级」改浮动胶囊（第三轮 polish）：不占满行高——
+ * 贴左上浮于正文之上，不挤掉首行消息；背景+阴影与正文拉开层级。 */
 .laneHeader {
+  position: sticky;
+  top: 8px;
+  z-index: 10;
   display: flex;
+  justify-content: flex-start;
+  height: 0;
+  padding: 0 0 0 16px;
+}
+
+.laneHeader button {
+  display: inline-flex;
   align-items: center;
-  padding: 8px 16px 0;
-  flex-shrink: 0;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
 }
 
 .laneHeader button {

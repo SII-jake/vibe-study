@@ -201,7 +201,6 @@ export const SessionView = ({
         sessionId={session.id}
         laneRootId={laneNodeId === sessionRootId ? undefined : laneNodeId}
       />
-      <div className={styles.caveat}>{t('contentCaveat')}</div>
     </div>
   )
 
