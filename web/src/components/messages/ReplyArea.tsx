@@ -1,6 +1,6 @@
 import { useTranslate } from '../../i18n/index.js'
 import clsx from 'clsx'
-import { memo, useEffect, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   IconBrowseOutline16,
   IconBrowseWarningOutline16,
@@ -128,14 +128,14 @@ const StepItem = ({
       const thinking =
         streaming && lastBlock?.startedAt !== undefined && lastBlock.endedAt === undefined
       return (
-        <ContentItem isLast={isLast} active={thinking}>
-          <Markdown
-            content={step.blocks.map((block) => block.thinking).join('')}
-            loading={thinking}
-            cacheKey={`${message.id}-${step.key}`}
-            disableLink
-          />
-        </ContentItem>
+        // 真机反馈③：思考内容与 DS demo 对齐——默认只展开约 5 行（行内贴底
+        // 滚动显示最新进度），点内容或「展开」按钮看全文
+        <ThinkingItem
+          isLast={isLast}
+          thinking={thinking}
+          content={step.blocks.map((block) => block.thinking).join('')}
+          cacheKey={`${message.id}-${step.key}`}
+        />
       )
     }
     case 'text':
@@ -164,6 +164,55 @@ const StepItem = ({
 }
 
 /** 思考或过程性文字：左侧圆点 + 竖线，小号 markdown */
+/** 思考内容项（真机反馈③）：钳位与展开态；流式期间自动贴底 */
+const ThinkingItem = ({
+  isLast,
+  thinking,
+  content,
+  cacheKey,
+}: {
+  isLast: boolean
+  thinking: boolean
+  content: string
+  cacheKey: string
+}) => {
+  const [expanded, setExpanded] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+  // 流式输出期间保持贴底（打字机感）；用户手动上翻不算中断——完成或展开后不再接管
+  useEffect(() => {
+    if (!thinking || expanded) return
+    const el = boxRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [content, thinking, expanded])
+  return (
+    <ContentItem isLast={isLast} active={thinking}>
+      <div
+        ref={boxRef}
+        className={clsx(styles.thinkClamp, expanded && styles.thinkExpanded)}
+        onClick={() => setExpanded(true)}
+      >
+        <Markdown content={content} loading={thinking} cacheKey={cacheKey} disableLink />
+      </div>
+      {expanded ? (
+        <button type="button" className={styles.thinkToggle} onClick={() => setExpanded(false)}>
+          收起
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={styles.thinkToggle}
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpanded(true)
+          }}
+        >
+          展开
+        </button>
+      )}
+    </ContentItem>
+  )
+}
+
 const ContentItem = ({
   children,
   active,
