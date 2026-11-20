@@ -96,7 +96,10 @@ public class MainActivity extends BridgeActivity {
             // 页面内 <a href> 直达与 window.open 是两条链路，都得拦。
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                if (isExternalHttpUrl(request.getUrl())) {
+                // 1.0.8 登录跳转回退修复：还在本地壳资产（选服页 https://localhost 或
+                // file://）时的 http 导航是"把 WebView 拉进会话页的那一跳"——host 与
+                // 服务器天然不同源，绝不能按外链判；只有已在远程会话页里才谈外链。
+                if (isChatPage() && isExternalHttpUrl(request.getUrl())) {
                     openInSystemBrowser(request.getUrl());
                     return true;
                 }
@@ -115,7 +118,11 @@ public class MainActivity extends BridgeActivity {
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
                         Uri url = request.getUrl();
-                        if (url != null && isExternalHttpUrl(url)) {
+                        // window.open 的导航以 view（发起页）为基准重新判定：
+                        // 发起页是本地壳资产时放行原位加载，是会话页时才收为外链。
+                        boolean onChatPage = view.getUrl() != null && view.getUrl().startsWith("http")
+                            && !view.getUrl().startsWith("https://localhost");
+                        if (url != null && onChatPage && isExternalHttpUrl(url)) {
                             openInSystemBrowser(url);
                         } else if (url != null) {
                             view.loadUrl(url.toString());
@@ -166,6 +173,7 @@ public class MainActivity extends BridgeActivity {
     /**
      * 非同源 http(s) 判定（真机反馈①）：以当前 WebView 已加载的服务器地址为基准，
      * 同源路径（应用内会话/静态资源/OA 下载页）原位放行，其余一律视为外链。
+     * 注意：仅对 isChatPage() 阶段有意义——本地壳资产的 http 导航不在此管辖。
      */
     private boolean isExternalHttpUrl(Uri url) {
         if (url == null) return false;

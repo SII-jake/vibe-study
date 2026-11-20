@@ -30,6 +30,14 @@ describe('MainActivity：窗口与系统栏策略（真机反馈①②⑤）', (
     expect(mainActivity).toContain('isExternalHttpUrl')
   })
 
+  it('启动选服页（本地壳资产）里跳往服务器的导航必须放行——登录跳浏览器回退修复', () => {
+    // 1.0.8 实测回退：isExternalHttpUrl 以当前页 host 比目标 host，
+    // 选服页 host 是 localhost/file:// 天然不同源，登录一跳就被扔去系统浏览器。
+    // 判定必须以 isChatPage() 为闸：只在远程会话页里才谈"外链"。
+    expect(mainActivity).toContain('!isChatPage()')
+    expect(mainActivity).toMatch(/shouldOverrideUrlLoading[\s\S]{0,600}isChatPage\(\)/)
+  })
+
   it('会话页返回键不再触发 WebView 历史回退（②：无层按无操作处理）', () => {
     // 只有非会话页（boot 选服页）才交还系统默认分发
     expect(mainActivity).toContain('!isChatPage()')
