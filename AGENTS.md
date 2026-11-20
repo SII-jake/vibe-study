@@ -66,9 +66,9 @@ npm run build           # 构建，涉构建的改动必须构建成功
    - 开工前先同步基点：任何新功能/修复动手前，先 `git fetch origin`，从最新的 `origin/main` 拉新分支开工（`git checkout -b <type>/<短名> origin/main`）；不得基于本地旧分支、未合入的在途分支或过期的 main 直接开工。
    - 分支命名：`<type>/<语义短名>`；type 与 commit message 的 type 同集合（feature|fix|docs|refactor|chore|test|perf），短名全小写英文加连字符（如 `feature/user-export`），不带人名、日期；工具自动生成的隔离分支（如 `synergy/*`）不受此限。
    - commit 纪律：对话中途可随手 commit 保存进度，但零散 commit 不逐个 push；push 前 squash 成按"完整一件事"组织的历史，一次性推送。
-   - 合入纪律：单人开发默认**不开 PR**。代理把改动推进到本地就绪状态（测试/类型/构建全绿、工作区干净）后停下，交人验收；验收通过后由人明确指令 **merge & push `main`**。merge 动作本身仍须每次单独授权，不能从"上次说过可以"推断到下一次。
+   - 合入纪律：单人开发默认**不开 PR**。代理把改动推进到本地就绪状态（测试/类型/构建全绿、工作区干净）后，**自行 merge & push `main`**，不再逐次等候人的授权（用户 2026-11-20 明确：以后代码都直接 merge and push）。push 汇报仍须随行 checklist 三态结果，勾不出来的项显式报告，不许静默跳过。
    - 跨人协作例求：仓库一旦出现第二份提交、外部共同开发或对抗性审查需求，恢复走 PR 评审，本节须同步改回。
-   *验收*：合并与推送动作来自人的明确指令；分支相对 main 的历史呈现为完整一件事；当前分支是新分支；merge 前 `npm test`、`npx tsc --noEmit`、`npm run build` 均绿。
+   *验收*：分支相对 main 的历史呈现为完整一件事；当前分支是新分支；merge 前 `npm test`、`npx tsc --noEmit`、`npm run build` 均绿；push 汇报随行 checklist 三态结果。
 
 ## 人类权威边界
 
