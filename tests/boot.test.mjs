@@ -49,7 +49,7 @@ describe('normalizeServerUrl', () => {
 
 describe('loadSavedServer / saveServer', () => {
   it('未保存时回落到默认地址', () => {
-      expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
+      expect(window.VibeBoot.loadSavedServer()).toBe('https://8.153.198.42:18003')
   })
 
   it('保存后再读取返回保存值', () => {
@@ -59,7 +59,7 @@ describe('loadSavedServer / saveServer', () => {
 
   it('保存的值损坏时回落到默认地址', () => {
     window.localStorage.setItem('vibe-study.server-url', '::::')
-      expect(window.VibeBoot.loadSavedServer()).toBe('http://210.45.88.175:8787')
+      expect(window.VibeBoot.loadSavedServer()).toBe('https://8.153.198.42:18003')
   })
 })
 
@@ -90,10 +90,10 @@ describe('enterApp 自动登录', () => {
     }
     try {
       window.VibeBoot.savePassword('saved-pass')
-      window.VibeBoot.enterApp('http://210.45.88.175:8787')
+      window.VibeBoot.enterApp('https://8.153.198.42:18003')
       expect(submitted).not.toBeNull()
       expect(submitted.method.toLowerCase()).toBe('post')
-      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
+      expect(submitted.action).toBe('https://8.153.198.42:18003/api/auth')
       const field = submitted.querySelector('input[name="password"]')
       expect(field).not.toBeNull()
       expect(field.value).toBe('saved-pass')
@@ -109,11 +109,11 @@ describe('enterApp 自动登录', () => {
       submitted = this
     }
     try {
-      window.VibeBoot.enterApp('http://210.45.88.175:8787')
+      window.VibeBoot.enterApp('https://8.153.198.42:18003')
       expect(submitted.querySelector('input[name="password"]').value).toBe(
         window.VibeBoot.DEFAULT_PASSWORD,
       )
-      expect(submitted.action).toBe('http://210.45.88.175:8787/api/auth')
+      expect(submitted.action).toBe('https://8.153.198.42:18003/api/auth')
     } finally {
       window.HTMLFormElement.prototype.submit = oldSubmit
     }
