@@ -17,13 +17,17 @@ import android.view.ActionMode;
 import android.webkit.JavascriptInterface;
 import android.net.http.SslError;
 import android.webkit.SslErrorHandler;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
 import java.io.File;
@@ -69,6 +73,10 @@ public class MainActivity extends BridgeActivity {
         // 「＋新会话」与电量图标重叠（真机反馈）。decor 适配系统窗口即可
         // 回到「WebView 在状态栏之下」的布局；CSS 的 safe-top 兜底挖空场景。
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        // 真机反馈⑤：应用只有浅色主题——状态栏必须显式声明浅色（深色图标），
+        // 白底下时间/电量才可读；系统按内容自动推断在 WebView 场景靠不住。
+        new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
+            .setAppearanceLightStatusBars(true);
         // SSL 放行见注释 3：白名单双匹配的 proceed，其余照样 cancel。
         // 必须继承 BridgeWebViewClient 而不是裸 WebViewClient——后者会顶掉
         // Capacitor 自己的请求拦截管线（本地资产服务/路由/错误页），导致启动页黑屏
@@ -83,6 +91,43 @@ public class MainActivity extends BridgeActivity {
                     handler.cancel();
                 }
             }
+
+            // 真机反馈①：非同源 http(s) 直达导航同样交系统浏览器——
+            // 页面内 <a href> 直达与 window.open 是两条链路，都得拦。
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (isExternalHttpUrl(request.getUrl())) {
+                    openInSystemBrowser(request.getUrl());
+                    return true;
+                }
+                return super.shouldOverrideUrlLoading(view, request);
+            }
+        });
+
+        // 真机反馈①（外链链路本体）：window.open('_blank') 的目标由 WebChromeClient
+        // 的 onCreateWindow 承接——外部页面一律转交系统浏览器，WebView 不承接、
+        // 不产生外部历史；返回键不再掉进"看完文章回来像被重置"的坑。
+        getBridge().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                WebView probe = new WebView(view.getContext());
+                probe.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        Uri url = request.getUrl();
+                        if (url != null && isExternalHttpUrl(url)) {
+                            openInSystemBrowser(url);
+                        } else if (url != null) {
+                            view.loadUrl(url.toString());
+                        }
+                        return true;
+                    }
+                });
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(probe);
+                resultMsg.sendToTarget();
+                return true;
+            }
         });
 
         // 返回键先问前端，不直接 finish（注释 4）：onBackPressedDispatcher 是
@@ -96,12 +141,16 @@ public class MainActivity extends BridgeActivity {
                         "document.dispatchEvent(new Event('vite-back', { cancelable: true }))", null);
                     return;
                 }
-                // 无层可退或还在启动页：交还 dispatcher 原本的行为
-                // （WebView 历史回退/finish）——先摘回调防自我递归，分发后再挂回
-                setEnabled(false);
-                getOnBackPressedDispatcher().onBackPressed();
-                if (!isFinishing()) {
-                    getBridge().getWebView().post(() -> setEnabled(true));
+                // 真机反馈②：会话页无追问层可退时按无操作处理——boot 跳转后
+                // WebView 历史栈底是"选择服务器"页，历史回退会把它翻出来；
+                // 这里什么都不做。只有还在启动/选服页（!isChatPage()）才交还
+                // 系统默认分发；先摘回调防自我递归，分发后再挂回。
+                if (!isChatPage()) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    if (!isFinishing()) {
+                        getBridge().getWebView().post(() -> setEnabled(true));
+                    }
                 }
             }
         });
@@ -112,6 +161,29 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() == null || getBridge().getWebView() == null) return false;
         String url = getBridge().getWebView().getUrl();
         return url != null && url.startsWith("http");
+    }
+
+    /**
+     * 非同源 http(s) 判定（真机反馈①）：以当前 WebView 已加载的服务器地址为基准，
+     * 同源路径（应用内会话/静态资源/OA 下载页）原位放行，其余一律视为外链。
+     */
+    private boolean isExternalHttpUrl(Uri url) {
+        if (url == null) return false;
+        String scheme = url.getScheme();
+        if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) return false;
+        String currentUrl = getBridge().getWebView().getUrl();
+        Uri current = currentUrl == null ? null : Uri.parse(currentUrl);
+        if (current == null || current.getHost() == null) return true;
+        return !current.getHost().equalsIgnoreCase(url.getHost());
+    }
+
+    /** 外部页面交系统浏览器；没浏览器可接时静默不跳（不破坏会话页状态）。 */
+    private void openInSystemBrowser(Uri url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, url));
+        } catch (ActivityNotFoundException ignored) {
+            // 设备无浏览器：不打开，会话留在原地
+        }
     }
 
     /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
