@@ -107,7 +107,7 @@ public class MainActivity extends BridgeActivity {
         // 真机反馈①（外链链路本体）：window.open('_blank') 的目标由 WebChromeClient
         // 的 onCreateWindow 承接——外部页面一律转交系统浏览器，WebView 不承接、
         // 不产生外部历史；返回键不再掉进"看完文章回来像被重置"的坑。
-        getBridge().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+        getBridge().getWebView().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
             @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
                 WebView probe = new WebView(view.getContext());
