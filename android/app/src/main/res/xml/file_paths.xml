@@ -1,5 +1,10 @@
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- OTA 更新包落在 getExternalFilesDir(DIRECTORY_DOWNLOADS)（应用专属外部目录）:
+         缺了 external-files-path，FileProvider.getUriForFile 拉起安装器时
+         抛 IllegalArgumentException——表现为"下载完了就是不弹安装界面"（2026-11-20 实测）。 -->
+    <external-files-path name="ota_update" path="Download/" />
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
 </paths>

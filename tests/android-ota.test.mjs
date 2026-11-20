@@ -7,6 +7,10 @@ import { describe, expect, it } from 'vitest'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = readFileSync(join(repoRoot, 'android/app/src/main/AndroidManifest.xml'), 'utf8')
+const filePaths = readFileSync(
+  join(repoRoot, 'android/app/src/main/res/xml/file_paths.xml'),
+  'utf8',
+)
 const mainActivity = readFileSync(
   join(repoRoot, 'android/app/src/main/java/cn/sii/yjzhou/vibestudy/MainActivity.java'),
   'utf8',
@@ -32,5 +36,13 @@ describe('MainActivity：VibeAppUpdate 原生桥就位', () => {
     for (const method of ['getVersionCode', 'getVersionName', 'hasUpdatePermission', 'openUpdatePermissionSettings', 'downloadAndInstall']) {
       expect(mainActivity, `缺少 ${method}`).toContain(`${method}(`)
     }
+  })
+})
+
+describe('OTA 安装路径（真机反馈：下载完不弹安装界面）', () => {
+  it('file_paths.xml 声明 external-files-path——FileProvider 才能包了应用专属下载目录', () => {
+    // 下载目标是 getExternalFilesDir(DIRECTORY_DOWNLOADS)，仅 external-path/cache-path
+    // 的声明会让 getUriForFile 抛 IllegalArgumentException，安装器永远拉不起来
+    expect(filePaths).toContain('external-files-path')
   })
 })
