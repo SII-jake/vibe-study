@@ -155,3 +155,49 @@ describe('DEFAULT_PASSWORD 强度', () => {
     expect(pwd.length).toBeGreaterThanOrEqual(16)
   })
 })
+
+// OTA 版本比较自证（2026-11-20 用户报告：已装 1.0.12 仍提示"新版本 1.0.12"）——
+// 桥与服务端版本相等时必须 up-to-date（不提示不下载）；旧壳才发起下载。
+describe('checkAppUpdate 版本比较（已装最新壳不重复提示）', () => {
+  const published = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      versionName: '1.0.12',
+      versionCode: 10012000,
+      apkName: 'vibe-study-1.0.12-release.apk',
+      sha256: 'c780eec35058f633893e379dcc85e61e28aa469fbfa49b95be568bb08c0d6a33',
+    }),
+  })
+
+  it('桥版本=服务端 → up-to-date，不发起下载', async () => {
+    const calls = []
+    window.VibeAppUpdate = {
+      getVersionCode: () => 10012000,
+      getVersionName: () => '1.0.12',
+      hasUpdatePermission: () => true,
+      downloadAndInstall: () => calls.push('download'),
+    }
+    window.fetch = async () => published()
+    const state = await window.VibeBoot.checkAppUpdate('https://8.153.198.42:18003')
+    expect(state.status).toBe('up-to-date')
+    expect(calls).toEqual([])
+  })
+
+  it('桥版本旧 → downloading（发起下载）', async () => {
+    const calls = []
+    window.VibeAppUpdate = {
+      getVersionCode: () => 10011000,
+      getVersionName: () => '1.0.11',
+      hasUpdatePermission: () => true,
+      downloadAndInstall: (url, sha) => { calls.push([url, sha]); return true },
+    }
+    window.fetch = async () => published()
+    const state = await window.VibeBoot.checkAppUpdate('https://8.153.198.42:18003')
+    expect(state.status).toBe('downloading')
+    expect(calls).toEqual([
+      ['https://8.153.198.42:18003/app/vibe-study-1.0.12-release.apk',
+       'c780eec35058f633893e379dcc85e61e28aa469fbfa49b95be568bb08c0d6a33'],
+    ])
+  })
+})

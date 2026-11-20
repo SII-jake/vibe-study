@@ -126,11 +126,9 @@ public class MainActivity extends BridgeActivity {
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
                         Uri url = request.getUrl();
-                        // window.open 的导航以 view（发起页）为基准重新判定：
-                        // 发起页是本地壳资产时放行原位加载，是会话页时才收为外链。
-                        boolean onChatPage = view.getUrl() != null && view.getUrl().startsWith("http")
-                            && !view.getUrl().startsWith("https://localhost");
-                        if (url != null && onChatPage && isExternalHttpUrl(url)) {
+                        // window.open 的导航以发起页为基准重新判定：本地壳资产时放行原位加载，
+                        // 是会话页时才收为外链（判口与 shouldOverrideUrlLoading 同一份 isChatPage）。
+                        if (url != null && isChatPage() && isExternalHttpUrl(url)) {
                             openInSystemBrowser(url);
                         } else if (url != null) {
                             view.loadUrl(url.toString());
@@ -171,11 +169,15 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
-    /** 当前是否在远程会话页（boot.js 启动阶段是 file:// 本地资产，不算会话页）。 */
+    /** 当前是否在远程会话页（boot.js 启动阶段是 file:// 本地资产或 https://localhost
+     *  Capacitor 本地源，都不算会话页——不以"以 http 起头"鲁莽判定（1.0.9 回退教训：
+     *  https://localhost 也是以 http 起头，选服页会被当成会话页看待）。 */
     private boolean isChatPage() {
         if (getBridge() == null || getBridge().getWebView() == null) return false;
         String url = getBridge().getWebView().getUrl();
-        return url != null && url.startsWith("http");
+        if (url == null || !url.startsWith("http")) return false;
+        String host = Uri.parse(url).getHost();
+        return host != null && !"localhost".equalsIgnoreCase(host);
     }
 
     /**
@@ -345,41 +347,60 @@ public class MainActivity extends BridgeActivity {
          */
         private void downloadInProcess(String url, File target, String expectedSha256) {
             new Thread(() -> {
-                File tmp = new File(target.getParent(), target.getName() + ".part");
-                try {
-                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                    if (conn instanceof HttpsURLConnection https) {
-                        Uri uri = Uri.parse(url);
-                        if (TRUSTED_HOST.equals(uri.getHost())) {
-                            https.setSSLSocketFactory(pinnedSslSocketFactory());
-                            https.setHostnameVerifier(pinnedHostnameVerifier());
+                // 真机反馈：手机网络慢/中途休眠 socket 会停滞，read timeout 单次
+                // 中断后就该重试一次再当做网络错误——下载 3MB 的 APK 本身几秒
+                // 能完成，反复超时那是真的断网，不应再占启动流程。
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    File tmp = new File(target.getParent(), target.getName() + ".part");
+                    try {
+                        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                        if (conn instanceof HttpsURLConnection https) {
+                            Uri uri = Uri.parse(url);
+                            if (TRUSTED_HOST.equals(uri.getHost())) {
+                                https.setSSLSocketFactory(pinnedSslSocketFactory());
+                                https.setHostnameVerifier(pinnedHostnameVerifier());
+                            }
                         }
-                    }
-                    conn.setConnectTimeout(10_000);
-                    conn.setReadTimeout(30_000);
-                    conn.connect();
-                    if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                        throw new IllegalStateException("http-" + conn.getResponseCode());
-                    }
-                    try (InputStream in = conn.getInputStream();
-                         FileOutputStream out = new FileOutputStream(tmp)) {
-                        byte[] buffer = new byte[64 * 1024];
-                        int read;
-                        while ((read = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, read);
+                        conn.setConnectTimeout(10_000);
+                        conn.setReadTimeout(60_000);
+                        conn.connect();
+                        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                            notifyOtaFailed("http-" + conn.getResponseCode());
+                            return;
                         }
+                        try (InputStream in = conn.getInputStream();
+                             FileOutputStream out = new FileOutputStream(tmp)) {
+                            byte[] buffer = new byte[64 * 1024];
+                            int read;
+                            while ((read = in.read(buffer)) != -1) {
+                                out.write(buffer, 0, read);
+                            }
+                        }
+                        conn.disconnect();
+                        if (!Sha256Verifier.matches(tmp, expectedSha256)) {
+                            //noinspection ResultOfMethodCallIgnored
+                            tmp.delete();
+                            notifyOtaFailed("checksum");
+                            return;
+                        }
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.renameTo(target);
+                        getBridge().getWebView().post(() -> installApk(target));
+                        return;
+                    } catch (java.net.SocketTimeoutException error) {
+                        // 超时重试一次（吞掉第一轮的失败，不然用户看一眼"超时"
+                        // 马上以为挂了）；两次都超时才真正算网络不通。
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                        if (attempt == 1) {
+                            notifyOtaFailed("timeout");
+                        }
+                    } catch (Exception error) {
+                        //noinspection ResultOfMethodCallIgnored
+                        tmp.delete();
+                        notifyOtaFailed(error.getClass().getSimpleName());
+                        return;
                     }
-                    conn.disconnect();
-                    if (!Sha256Verifier.matches(tmp, expectedSha256)) {
-                        throw new IllegalStateException("sha256-mismatch");
-                    }
-                    //noinspection ResultOfMethodCallIgnored
-                    tmp.renameTo(target);
-                    getBridge().getWebView().post(() -> installApk(target));
-                } catch (Exception error) {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmp.delete();
-                    notifyOtaFailed(error.getClass().getSimpleName());
                 }
             }).start();
         }
