@@ -46,3 +46,29 @@ describe('OTA 安装路径（真机反馈：下载完不弹安装界面）', () 
     expect(filePaths).toContain('external-files-path')
   })
 })
+
+describe('OTA 下载链路（真机反馈：系统下载器不认自签证书，下载永远完不成）', () => {
+  it('下载收进 App 进程内：18003 自签证书由壳一对一钉证', () => {
+    expect(mainActivity).toContain('downloadInProcess')
+    expect(mainActivity).toContain('pinnedSslSocketFactory')
+    expect(mainActivity).toContain('pinnedHostnameVerifier')
+    expect(mainActivity).toContain('TRUSTED_CERT_SHA256')
+  })
+
+  it('系统 DownloadManager 整段退役（它在 App 进程外，WebView 放行管不到）', () => {
+    expect(mainActivity).not.toContain('DownloadManager')
+    expect(mainActivity).not.toContain('ACTION_DOWNLOAD_COMPLETE')
+  })
+
+  it('下载失败发 vibe-ota-failed 事件给启动页（不再傻等不弹的安装界面）', () => {
+    expect(mainActivity).toContain('vibe-ota-failed')
+    expect(mainActivity).toContain('notifyOtaFailed')
+  })
+
+  it('启动页对失败态有兜底：download-failed 状态与 vibe-ota-failed 监听', () => {
+    const bootJs = readFileSync(join(repoRoot, 'android-shell/boot.js'), 'utf8')
+    const bootHtml = readFileSync(join(repoRoot, 'android-shell/index.html'), 'utf8')
+    expect(bootJs).toContain('download-failed')
+    expect(bootHtml).toContain('vibe-ota-failed')
+  })
+})

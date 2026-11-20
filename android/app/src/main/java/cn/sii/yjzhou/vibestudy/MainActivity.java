@@ -1,14 +1,9 @@
 package cn.sii.yjzhou.vibestudy;
 
-import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -31,8 +26,21 @@ import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.CertificateException;
 
 /**
  * 两件原生职责：
@@ -42,7 +50,7 @@ import java.security.cert.X509Certificate;
   *    可编辑状态由页面同步：src/ui/selection-guard.ts 在 focusin/focusout 时
   *    通过 VibeSelectionGuard 桥对象回写；默认未同步前按不可编辑处理。
  * 2) 壳内 OTA：VibeAppUpdate 桥 —— 前端比对 /api/app-version 与当前版本后，
- *    走 DownloadManager 下载 APK、完成即拉起系统安装器。
+ *    由壳进程内下载 APK（18003 自签证书一对一钉证）、校验 SHA-256 后拉起系统安装器。
  *    用户只需要在系统安装弹窗点一次「安装」，不再要微信转发安装包。
  * 3) 自签服务端证书放行（手机实测缺陷修复）：内网部署 8.153.198.42:18003 走
  *    nginx 自签证书，Android WebView 默认对不受信证书**静默断连**——启动页选
@@ -194,17 +202,26 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
-    private boolean certSha256Matches(SslError error) {
+    /** 证书的冒号分隔十六进制 SHA-256——certSha256Matches 与进程内钉证共用。 */
+    private static String sha256Hex(X509Certificate cert) {
         try {
-            X509Certificate cert = (X509Certificate) error.getCertificate().getX509Certificate();
             byte[] sha256 = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < sha256.length; i++) {
                 if (i > 0) sb.append(':');
                 sb.append(String.format("%02X", sha256[i]));
             }
-            return TRUSTED_CERT_SHA256.equalsIgnoreCase(sb.toString());
+            return sb.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
+    private boolean certSha256Matches(SslError error) {
+        try {
+            return TRUSTED_CERT_SHA256.equalsIgnoreCase(
+                sha256Hex((X509Certificate) error.getCertificate().getX509Certificate()));
         } catch (Exception ignored) {
             return false;
         }
@@ -297,10 +314,10 @@ public class MainActivity extends BridgeActivity {
         }
 
         /**
-         * 下载并安装：DownloadManager 拉到应用外部文件目录（免存储权限、系统接管
-         * 断网重试），完成后比对 SHA-256，一致才用 FileProvider 拉起安装器。
+         * 下载并安装：进程内把 APK 拉写到应用外部文件目录，完成后比对 SHA-256，
+         * 一致才用 FileProvider 拉起安装器。
          *
-         * @return 提交下载是否成功（失败场景多为 URL 非法/DownloadManager 未启用）
+         * @return 提交下载是否成功（URL/目标路径非法或目标文件系统不可用时失败）
          */
         @JavascriptInterface
         public boolean downloadAndInstall(String url, String expectedSha256) {
@@ -311,55 +328,109 @@ public class MainActivity extends BridgeActivity {
                     //noinspection ResultOfMethodCallIgnored
                     target.delete();
                 }
-
-                DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                request.setTitle("vibe study 更新下载中");
-                request.setDescription("下载完成后将自动拉起安装");
-                request.setMimeType("application/vnd.android.package-archive");
-                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
-                request.setDestinationUri(Uri.fromFile(target));
-
-                long downloadId = manager.enqueue(request);
-                registerInstallReceiver(downloadId, target, expectedSha256);
+                downloadInProcess(url, target, expectedSha256);
                 return true;
             } catch (IllegalArgumentException | IllegalStateException error) {
                 return false;
             }
         }
 
-        /** 一次性完成监听：校验 → 安装；失败即删除坏包，避免缓存坏包反复拉起。 */
-        private void registerInstallReceiver(long downloadId, File target, String expectedSha256) {
-            BroadcastReceiver receiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != downloadId) return;
-                    context.unregisterReceiver(this);
-                    if (!isDownloadSuccessful(downloadId)) return;
-                    if (!Sha256Verifier.matches(target, expectedSha256)) {
-                        //noinspection ResultOfMethodCallIgnored
-                        target.delete();
-                        return;
+        /**
+         * 进程内下载（真机反馈：系统下载器方案卡死在"下载中"——下载器在 App 进程外，
+         * WebView 的 onReceivedSslError 放行管不到它，18003 自签证书握手即失败，
+         * 下载永远完不成，安装界面永不弹），改为壳进程内下载并钉证。
+         * http 直连；https 仅对 TRUSTED_HOST 一对一钉证（与 WebView 白名单同一枚指纹），
+         * 其余 https 主机走系统信任链。完成→SHA-256 校验→拉起安装器；
+         * 任何失败发 vibe-ota-failed 事件给启动页（让它能放行进入应用，不再傻等）。
+         */
+        private void downloadInProcess(String url, File target, String expectedSha256) {
+            new Thread(() -> {
+                File tmp = new File(target.getParent(), target.getName() + ".part");
+                try {
+                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                    if (conn instanceof HttpsURLConnection https) {
+                        Uri uri = Uri.parse(url);
+                        if (TRUSTED_HOST.equals(uri.getHost())) {
+                            https.setSSLSocketFactory(pinnedSslSocketFactory());
+                            https.setHostnameVerifier(pinnedHostnameVerifier());
+                        }
                     }
-                    installApk(target);
+                    conn.setConnectTimeout(10_000);
+                    conn.setReadTimeout(30_000);
+                    conn.connect();
+                    if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                        throw new IllegalStateException("http-" + conn.getResponseCode());
+                    }
+                    try (InputStream in = conn.getInputStream();
+                         FileOutputStream out = new FileOutputStream(tmp)) {
+                        byte[] buffer = new byte[64 * 1024];
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                        }
+                    }
+                    conn.disconnect();
+                    if (!Sha256Verifier.matches(tmp, expectedSha256)) {
+                        throw new IllegalStateException("sha256-mismatch");
+                    }
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.renameTo(target);
+                    getBridge().getWebView().post(() -> installApk(target));
+                } catch (Exception error) {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                    notifyOtaFailed(error.getClass().getSimpleName());
                 }
-            };
-            IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
-            } else {
-                //noinspection UnspecifiedRegisterReceiverFlag
-                registerReceiver(receiver, filter);
-            }
+            }).start();
         }
 
-        private boolean isDownloadSuccessful(long downloadId) {
-            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            try (Cursor cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId))) {
-                if (cursor == null || !cursor.moveToFirst()) return false;
-                int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-                return status == DownloadManager.STATUS_SUCCESSFUL;
-            }
+        /** 下载失败回填启动页：启动页收到后把"下载中"改成失败提示并放行进入应用。 */
+        private void notifyOtaFailed(String reason) {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
+            String js = "document.dispatchEvent(new CustomEvent('vibe-ota-failed',"
+                + " { detail: { reason: '" + reason + "' } }))";
+            getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(js, null));
+        }
+
+        /** 只对 TRUSTED_HOST 一对一钉证（证书指纹与 WebView 白名单同一枚）。 */
+        private static SSLSocketFactory pinnedSslSocketFactory() throws Exception {
+            TrustManager[] trustManagers = { new X509TrustManager() {
+                @Override
+                public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    throw new CertificateException("no client auth");
+                }
+
+                @Override
+                public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    if (chain.length == 0 || !TRUSTED_CERT_SHA256.equalsIgnoreCase(sha256Hex(chain[0]))) {
+                        throw new CertificateException("certificate not pinned");
+                    }
+                }
+
+                @Override
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+            } };
+            SSLContext context = SSLContext.getInstance("TLS");
+            context.init(null, trustManagers, null);
+            return context.getSocketFactory();
+        }
+
+        /** 钉证证书的 hostname 校验：host 一致 + 握手证书指纹匹配才放行。 */
+        private static HostnameVerifier pinnedHostnameVerifier() {
+            return (hostname, session) -> {
+                if (!TRUSTED_HOST.equals(hostname)) return false;
+                try {
+                    if (session.getPeerCertificates().length > 0) {
+                        X509Certificate leaf = (X509Certificate) session.getPeerCertificates()[0];
+                        return TRUSTED_CERT_SHA256.equalsIgnoreCase(sha256Hex(leaf));
+                    }
+                } catch (SSLPeerUnverifiedException ignored) {
+                    // 拿不到对端证书按不信任处理
+                }
+                return false;
+            };
         }
 
         private void installApk(File target) {

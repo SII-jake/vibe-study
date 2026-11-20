@@ -86,7 +86,10 @@ async function checkAppUpdate(server) {
   }
 
   const url = `${server}/app/${published.apkName}`
-  bridge.downloadAndInstall(url, published.sha256 ?? '')
+  const accepted = bridge.downloadAndInstall(url, published.sha256 ?? '')
+  if (!accepted) return { status: 'download-failed', versionName }
+  // 桥异步下载（进程内，自签证书由壳钉证）：失败时壳发 vibe-ota-failed 事件，
+  // 启动页据此把"下载中"改成失败提示并放行进入应用——不再傻等不弹的安装界面。
   return { status: 'downloading', versionName }
 }
 

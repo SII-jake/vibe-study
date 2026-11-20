@@ -112,11 +112,33 @@
       function enterWithUpdateCheck(server) {
         cancelAuto()
         window.VibeBoot.checkAppUpdate(server).then(function (state) {
-          if (state.status === 'downloading' || state.status === 'need-permission') {
+          if (state.status === 'downloading') {
             byId('otaHint').textContent = state.versionName
-              ? '发现新版本 ' + state.versionName + '，' + (state.status === 'need-permission' ? '请在系统设置里允许本应用安装未知来源包后重开应用。' : '更新包下载中，完成后请在弹出的安装界面点「安装」。')
+              ? '发现新版本 ' + state.versionName + '，更新包下载中，完成后请在弹出的安装界面点「安装」。'
               : '更新包下载中，完成后请在弹出的安装界面点「安装」。'
             byId('otaHint').style.display = 'block'
+            // 真机反馈：下载失败（如自签证书/断网）时壳发事件——换上失败提示并自动放行，
+            // 应用照样能进，不再被"下载中"假象卡住。
+            document.addEventListener('vibe-ota-failed', function onFailed(event) {
+              document.removeEventListener('vibe-ota-failed', onFailed)
+              byId('otaHint').textContent = '更新包下载失败（' + (event.detail && event.detail.reason ? event.detail.reason : '网络异常') + '），已进入应用，下次启动时重试。'
+              window.setTimeout(function () {
+                window.VibeBoot.enterApp(server)
+              }, 1200)
+            })
+            return
+          }
+          if (state.status === 'need-permission') {
+            byId('otaHint').textContent = '发现新版本 ' + state.versionName + '，请在系统设置里允许本应用安装未知来源包后重开应用。'
+            byId('otaHint').style.display = 'block'
+            return
+          }
+          if (state.status === 'download-failed') {
+            byId('otaHint').textContent = '发现新版本 ' + (state.versionName || '') + '，但无法开始下载，已进入应用，下次启动时重试。'
+            byId('otaHint').style.display = 'block'
+            window.setTimeout(function () {
+              window.VibeBoot.enterApp(server)
+            }, 1200)
             return
           }
           window.VibeBoot.enterApp(server)
