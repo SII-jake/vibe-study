@@ -1,4 +1,3 @@
-<paths xmlns:android="http://schemas.android.com/apk/res/android">
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- OTA 更新包落在 getExternalFilesDir(DIRECTORY_DOWNLOADS)（应用专属外部目录）:
