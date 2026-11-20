@@ -20,6 +20,7 @@ import styles from './UserMessage.module.css'
 
 export const UserMessage = memo(function UserMessage({
   sessionId,
+  laneRootId,
   message,
   retryUploadId,
   isFirst,
@@ -29,6 +30,8 @@ export const UserMessage = memo(function UserMessage({
   onSelectVersion,
 }: {
   sessionId: string
+  /** 追问层编辑重试的路径锚点（真机反馈⑥） */
+  laneRootId?: string | null
   message: UserMessageType
   /** 回答因补传附件失败可重试时为该回答 id */
   retryUploadId: string | null
@@ -40,7 +43,11 @@ export const UserMessage = memo(function UserMessage({
 }) {
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(message.content)
+  const [draft, setDraft] = useState(
+    message.ask
+      ? (message.content.split('我的追问：').at(-1)?.trim() ?? message.content)
+      : message.content,
+  )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMobile = useIsMobile()
   const canSend = !busy && (draft.trim() !== '' || message.files.length > 0)
@@ -54,7 +61,7 @@ export const UserMessage = memo(function UserMessage({
   }, [editing, draft])
 
   const sendEdit = () => {
-    if (canSend && ensureApiKey() && editMessage(sessionId, message.id, draft.trim())) {
+    if (canSend && ensureApiKey() && editMessage(sessionId, message.id, draft.trim(), laneRootId)) {
       stopReadAloud()
       setEditing(false)
     }

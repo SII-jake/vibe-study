@@ -662,7 +662,13 @@ export const sendMessage = (
 }
 
 /** 重新生成当前路径上的回答：在原问题下新增版本，不覆盖旧回答和后续对话。 */
-export const regenerateReply = (sessionId: string, messageId?: string) => {
+export const regenerateReply = (
+  sessionId: string,
+  messageId?: string,
+  /** 真机反馈⑦：追问层里被重生的回答不在主线可见链上——按所在 lane 根
+   *  重根取路径，否则问≠答静默 return（用户看到"重试点了没反应"）。 */
+  laneRootId?: string | null,
+) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return
   }
@@ -670,7 +676,8 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
   if (!session || getStreamController(sessionId)) {
     return
   }
-  const path = getVisibleMessages(session)
+  const base = laneRootId ? rootedConversation(session, laneRootId) ?? session : session
+  const path = getVisibleMessages(base)
   const index =
     messageId === undefined ? path.length - 1 : path.findIndex((m) => m.id === messageId)
   const question = path[index - 1]
@@ -745,28 +752,48 @@ export const askAt = (
 }
 
 /** 编辑提问后新增同父版本，保留原文件；旧问题的所有回答与后续对话仍可切回。 */
-export const editMessage = (sessionId: string, messageId: string, content: string): boolean => {
+export const editMessage = (
+  sessionId: string,
+  messageId: string,
+  content: string,
+  /** 真机反馈⑥：追问层里被编辑的消息不在主线可见链上——按所在 lane 根
+   *  重根取路径，否则 findIndex=-1 静默返回 false（用户看到"点了没反应"）。 */
+  laneRootId?: string | null,
+): boolean => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return false
   }
-  const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  const current = getSession(sessionId)
+  if (!current || getStreamController(sessionId)) {
     return false
   }
-  const path = getVisibleMessages(session)
+  const base = laneRootId ? rootedConversation(current, laneRootId) ?? current : current
+  const path = getVisibleMessages(base)
   const index = path.findIndex((message) => message.id === messageId)
   const previous = path[index]
   const text = content.trim()
   if (previous?.role !== 'user' || (!text && previous.files.length === 0)) {
     return false
   }
-  const question: UserMessage = {
-    id: createId(),
-    role: 'user',
-    content: text,
-    files: previous.files,
-    createdAt: Date.now(),
-  }
+  // 真机反馈⑥同桩：追问消息的新版本必须仍是追问——ask 三元组原样保留、
+  // 内容按「引用 + 追问」同一封装格式重组；否则追问被静默降级成普通提问，
+  // 引子卡与追问层从此丢失这条分支。
+  const question: UserMessage = previous.ask
+    ? {
+        id: createId(),
+        role: 'user',
+        content: `你在回答中写过这段内容：\n\n> ${previous.ask.anchorText.trim()}\n\n我的追问：${text}`,
+        files: previous.files,
+        createdAt: Date.now(),
+        ask: previous.ask,
+      }
+    : {
+        id: createId(),
+        role: 'user',
+        content: text,
+        files: previous.files,
+        createdAt: Date.now(),
+      }
   const reply = createReply()
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, path[index - 1]?.id ?? null, [question, reply]),
@@ -789,7 +816,12 @@ export const selectMessageVersion = (sessionId: string, messageId: string) => {
 }
 
 /** 继续最后一条未完成的回答：保留原消息与开关，仅将新流的内容追加到原块之后。 */
-export const continueReply = (sessionId: string, messageId: string) => {
+export const continueReply = (
+  sessionId: string,
+  messageId: string,
+  /** 真机反馈⑦：与 regenerateReply 同桩——追问层按重根链取路径。 */
+  laneRootId?: string | null,
+) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return
   }
@@ -797,7 +829,8 @@ export const continueReply = (sessionId: string, messageId: string) => {
   if (!session || getStreamController(sessionId)) {
     return
   }
-  const path = getVisibleMessages(session)
+  const base = laneRootId ? rootedConversation(session, laneRootId) ?? session : session
+  const path = getVisibleMessages(base)
   const question = path.at(-2)
   const previous = path.at(-1)
   if (

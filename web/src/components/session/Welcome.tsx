@@ -1,4 +1,5 @@
 import { useIsMobile } from '../../app/viewport.js'
+import { Capacitor } from '@capacitor/core'
 import { useTranslate } from '../../i18n/index.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
 import { MobileHeader } from './MobileHeader.js'
@@ -14,7 +15,10 @@ export const Welcome = () => {
       <div className={styles.welcome}>
         <div className={styles.greeting}>{t('welcomeMessageChat250808')}</div>
         <ChatInput sessionId={null} />
-        {isMobile ? <div className={styles.caveat}>{t('contentCaveat')}</div> : null}
+        {/* 壳内不再需要这行免责声明（真机反馈④）：浏览器地址栏环境才保留提示 */}
+        {isMobile && !Capacitor.isNativePlatform() ? (
+          <div className={styles.caveat}>{t('contentCaveat')}</div>
+        ) : null}
       </div>
     </div>
   )

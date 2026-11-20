@@ -29,6 +29,7 @@ const TOP_UP_URL = 'https://platform.deepseek.com/top_up'
 
 export const AssistantMessage = memo(function AssistantMessage({
   sessionId,
+  laneRootId,
   message,
   isLast,
   streaming,
@@ -40,6 +41,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   returnAnchorText,
 }: {
   sessionId: string
+  /** 追问层重试/续写的路径锚点（真机反馈⑦） */
+  laneRootId?: string | null
   message: AssistantMessageType
   isLast: boolean
   streaming: boolean
@@ -171,7 +174,7 @@ export const AssistantMessage = memo(function AssistantMessage({
               disabled={busy || refused}
               onClick={() => {
                 stopReadAloud()
-                regenerateReply(sessionId, message.id)
+                regenerateReply(sessionId, message.id, laneRootId)
               }}
             />
           </div>
@@ -183,7 +186,7 @@ export const AssistantMessage = memo(function AssistantMessage({
               disabled={busy}
               onClick={() => {
                 stopReadAloud()
-                continueReply(sessionId, message.id)
+                continueReply(sessionId, message.id, laneRootId)
               }}
             >
               {t('continueGenerating')}

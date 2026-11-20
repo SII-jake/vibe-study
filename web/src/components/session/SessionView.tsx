@@ -238,6 +238,7 @@ export const SessionView = ({
           footer={laneFooter(laneNodeId)}
           onChildOpen={(nodeId) => openChild(nodeId, side)}
           returnAnchor={returnAnchor}
+          laneRootId={laneNodeId === sessionRootId ? undefined : laneNodeId}
         />
       </>
     )

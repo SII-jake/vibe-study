@@ -40,6 +40,7 @@ export const MessageList = ({
   footer,
   onChildOpen,
   returnAnchor,
+  laneRootId,
 }: {
   session: Session
   streaming: boolean
@@ -48,6 +49,9 @@ export const MessageList = ({
    *  携带该会话中 ask 分支的根用户消息 id，由 SessionView 接进 pane 规则。
    *  缺席时退回旧行为（同级版本切换）。 */
   onChildOpen?: (nodeId: string) => void
+  /** 真机反馈⑥⑦：所在 lane 的根消息 id（主线 lane 不传）——追问层里
+   *  编辑/重试/续写按重根链取路径，不然主线链外静默无反应 */
+  laneRootId?: string | null
   /** 「返回到这里」高亮的来源锚点（§二.5 第三轮修订）：仅 anchorMessageId
    *  命中的那条消息注入其 anchorText，由渲染层内联标记（与下划线同位同
    *  粒度，不再用块级背景块）；其余消息不注入，高亮至多一处 */
@@ -162,6 +166,7 @@ export const MessageList = ({
                 <UserMessage
                   key={message.id}
                   sessionId={session.id}
+                  laneRootId={laneRootId}
                   message={message}
                   retryUploadId={uploadRetryId}
                   isFirst={index === 0}
@@ -176,6 +181,7 @@ export const MessageList = ({
                 <div key={message.id}>
                   <AssistantMessage
                     sessionId={session.id}
+                    laneRootId={laneRootId}
                     message={message}
                     isLast={index === lastIndex}
                     streaming={streaming && index === lastIndex}
