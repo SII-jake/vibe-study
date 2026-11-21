@@ -10,9 +10,11 @@ android {
         // 版本纪律（AGENTS.md 铁律登记）：发版只 bump versionName；
         // versionCode 由它推导，与 server/app-version.mjs 的 versionCodeOf 同算法——
         // 壳内比较与服务器口径是同一个数，不会出现两边各说各话。
-        def semParts = "1.0.7".split(/\./).collect { it as int }
+        // （1.0.14 教训：semParts 硬编码死值会让之后所有包真实 versionCode 停在旧版本上，
+        //   服务器发 100xx000 与桥读到旧 code 永远"小于"，用户装多少遍新版都再被提示更新）
+        versionName "1.0.14"
+        def semParts = versionName.split(/\./).collect { it as int }
         versionCode semParts[0] * 10000000 + semParts[1] * 100000 + semParts[2] * 1000
-        versionName "1.0.13"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

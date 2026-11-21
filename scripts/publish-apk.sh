@@ -41,6 +41,25 @@ if [ -z "$APK" ]; then
 fi
 echo "产物：$APK"
 
+step "1.5/3 校验 APK 真实 versionCode 与 versionName 派生一致"
+# 1.0.8→1.0.13 事故：build.gradle 的 semParts 硬编码 "1.0.7"，逐版 bump 只动了
+# versionName，每个包真实 versionCode 都是 10007000——服务器按文件名发 100xx000，
+# 桥读到手机 10007000 永远"小于"，用户装多少遍新版都再被提示更新。
+# 这里用 aapt2 dump 直接读产物清单对账，不一致立即拦下不发。
+AAPT2_BIN="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)"
+if [ -n "$AAPT2_BIN" ]; then
+  actual_code="$("$AAPT2_BIN" dump badging "$APK" 2>/dev/null | rg "versionCode='" | head -1 | sed -E "s/.*versionCode='([0-9]+)'.*/\1/")"
+  vn="$(basename "$APK" | sed -E 's/.+-([0-9]+\.[0-9]+\.[0-9]+)-.+\.apk/\1/')"
+  IFS='.' read -r MA MI PA <<<"$vn"
+  expect_code=$(( MA * 10000000 + MI * 100000 + PA * 1000 ))
+  if [ "$actual_code" != "$expect_code" ]; then
+    echo "versionCode 不一致！APK 内部 $actual_code ≠ versionName $vn 派生 $expect_code"
+    echo "通常原因：build.gradle 的 versionCode 推导没从 versionName 派生——禁止带病发版。"
+    exit 1
+  fi
+  echo "versionCode 对账通过：$actual_code"
+fi
+
 step "2/3 校验包名与签名一致（签名变了旧机无法覆盖升级）"
 # 与 dist/app/ 里正在分发的旧包比对证书指纹；首次发布（无旧包）跳过
 CURRENT_CERT=""

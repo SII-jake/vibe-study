@@ -72,3 +72,14 @@ describe('OTA 下载链路（真机反馈：系统下载器不认自签证书，
     expect(bootHtml).toContain('vibe-ota-failed')
   })
 })
+
+describe('versionCode 与 versionName 同算法（真机反馈：装上新版仍重复提示更新）', () => {
+  it('build.gradle 的 versionCode 从 versionName 派生——不写死版本字面量', () => {
+    // 1.0.8→1.0.13 全部包的 APK 内部 versionCode 都是 10007000（semParts 硬编码
+    // "1.0.7"）：服务器发 10013000 与桥读 10007000 永远"小于"，装多少遍都提示更新。
+    // 钉死：semParts 来源必须是 versionName.split，不许出现硬编码 semver 字面量。
+    const gradle = readFileSync(join(repoRoot, 'android/app/build.gradle'), 'utf8')
+    expect(gradle).toContain('versionName.split')
+    expect(gradle).not.toMatch(/semParts\s*=\s*"\d+\.\d+\.\d+"/)
+  })
+})
