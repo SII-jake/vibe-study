@@ -15,6 +15,7 @@ import {
   mergeSessions,
   pullSessions,
   schedulePush,
+  setSyncFailureListener,
   syncOnce,
 } from './sync.js'
 import {
@@ -81,6 +82,9 @@ type ChatState = {
   sessionCache: Record<string, Session>
   sessionLoadErrors: Record<string, boolean>
   sessionSaveErrors: Record<string, boolean>
+  /** 同步推送失败（B，真机反馈 2026-11-22）：修复前一律静默，远端 H3 会话
+   *  写入撞 1MB 上限后毫无痕迹，网页端与手机端因此长期不一致。 */
+  syncError: 'too-large' | 'network' | 'http' | 'malformed' | null
   /** null 表示新对话（欢迎页） */
   activeId: string | null
   /** 正在生成回复的会话 */
@@ -95,6 +99,7 @@ export const useChatStore = create<ChatState>(() => ({
   sessionCache: {},
   sessionLoadErrors: {},
   sessionSaveErrors: {},
+  syncError: null,
   activeId: null,
   streaming: {},
 }))
@@ -290,7 +295,13 @@ export const bindChatPersistence = () => {
   const onFocus = () => onVisibilityChange()
   window.addEventListener('focus', onFocus)
   window.addEventListener('pagehide', save)
+  // 同步推送失败接到界面（B）：修复前只 return null，用户完全不知道
+  // 远端没收下这份改动——远端 H3 会话因此长时间停在旧版本。
+  setSyncFailureListener((failure) => {
+    set({ syncError: failure?.reason ?? null })
+  })
   return () => {
+    setSyncFailureListener(null)
     document.removeEventListener('visibilitychange', onVisibilityChange)
     window.removeEventListener('focus', onFocus)
     window.removeEventListener('pagehide', save)

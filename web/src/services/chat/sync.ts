@@ -93,6 +93,39 @@ export const sessionsToNodes = (sessions: Session[]): unknown[] => sessions
 export const nodesToSessions = (nodes: unknown[]): Session[] =>
   Array.isArray(nodes) ? nodes.filter(isSessionShape) : []
 
+/** 最近一次推送失败的原因（B：失败不再静默）。成功推送后清空。 */
+export type SyncFailure = {
+  /** too-large = 服务端 413；network = 连接层失败；http = 其它非 2xx */
+  reason: 'too-large' | 'network' | 'http' | 'malformed'
+  status?: number
+  size?: number
+  limit?: number
+}
+
+let lastSyncFailure: SyncFailure | null = null
+
+export const getLastSyncFailure = (): SyncFailure | null => lastSyncFailure
+
+/** 失败状态变化通知（store 注册后接到界面横幅；纯浏览器环境无副作用） */
+let failureListener: ((failure: SyncFailure | null) => void) | null = null
+
+export const setSyncFailureListener = (
+  listener: ((failure: SyncFailure | null) => void) | null,
+) => {
+  failureListener = listener
+}
+
+/**
+ * 记录并暴露推送失败：修复前一律 `return null` 静默吞掉，远端 "H3多模态推理优化"
+ * 会话写入撞 1MB 上限后没有任何痕迹，两端因此长期不一致（真机反馈 2026-11-22）。
+ */
+function failPush(failure: SyncFailure): null {
+  lastSyncFailure = failure
+  console.warn('[sync] 会话推送失败', failure)
+  failureListener?.(failure)
+  return null
+}
+
 /**
  * 本地变更 → 全量推送到服务端。失败（网络/非 2xx）不抛，返回 null；
  * 409 冲突返回最新版本号与远端会话，由调用方合并后重推。
@@ -102,23 +135,37 @@ export async function pushSessions(
   fetchImpl: SyncFetch,
 ): Promise<{ ok: true; version: number } | { ok: false; version: number; sessions: Session[] } | null> {
   let response: Response
+  const payload = JSON.stringify({ baseVersion: base, nodes: sessionsToNodes(sessions) })
   try {
     response = await fetchImpl('/api/nodes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseVersion: base, nodes: sessionsToNodes(sessions) }),
+      body: payload,
     })
   } catch {
-    return null
+    return failPush({ reason: 'network', size: payload.length })
+  }
+  if (response.status === 413) {
+    const body = (await response.json().catch(() => null)) as
+      | { limit?: number; size?: number }
+      | null
+    return failPush({
+      reason: 'too-large',
+      status: 413,
+      size: body?.size ?? payload.length,
+      limit: body?.limit,
+    })
   }
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as { version?: number; nodes?: unknown[] } | null
-    if (!body || typeof body.version !== 'number') return null
+    if (!body || typeof body.version !== 'number') return failPush({ reason: 'malformed', status: 409 })
     return { ok: false, version: body.version, sessions: nodesToSessions(body.nodes ?? []) }
   }
-  if (!response.ok) return null
+  if (!response.ok) return failPush({ reason: 'http', status: response.status })
   const body = (await response.json().catch(() => null)) as { version?: number } | null
-  if (!body || typeof body.version !== 'number') return null
+  if (!body || typeof body.version !== 'number') return failPush({ reason: 'malformed', status: response.status })
+  lastSyncFailure = null
+  failureListener?.(null)
   return { ok: true, version: body.version }
 }
 

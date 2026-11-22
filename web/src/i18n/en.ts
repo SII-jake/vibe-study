@@ -12,6 +12,10 @@ export const en = {
   sessionLoadFailed: 'Unable to load this chat. Please try again.',
   sessionSaveFailed:
     'Chats or attachments have not been saved locally. Retry before closing this page.',
+  syncFailed:
+    'This chat has not been synced to the server yet. Other devices may miss the latest content.',
+  syncTooLarge:
+    'This chat exceeds the server request size limit and has not been synced. Check the server body limit.',
   sessionDeleteFailed: 'Unable to delete this chat. Please try again.',
   settings: 'Settings',
   appName: 'vibe study',

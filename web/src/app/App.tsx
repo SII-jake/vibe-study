@@ -35,6 +35,8 @@ export const App = () => {
   const ready = useChatStore((state) => state.ready)
   const initError = useChatStore((state) => state.initError)
   const saveError = useChatStore((state) => Object.values(state.sessionSaveErrors).some(Boolean))
+  // 同步推送失败（B）：以前只进 console，手机上完全看不到写入没上去
+  const syncError = useChatStore((state) => state.syncError)
   const importingHistory = useChatStore((state) => state.importingHistory)
   const session = useChatStore((state) =>
     state.activeId !== null && Object.hasOwn(state.sessionCache, state.activeId)
@@ -89,6 +91,13 @@ export const App = () => {
               >
                 {t('retry')}
               </Button>
+            </div>
+          ) : null}
+          {/* 同步推送失败（B，真机反馈 2026-11-22）：以前只进 console，手机上
+              完全看不到"这份改动没同步到服务器"——远端 H3 会话因此长期停在旧版本。 */}
+          {syncError ? (
+            <div className={styles.saveError} role="alert">
+              <span>{syncError === 'too-large' ? t('syncTooLarge') : t('syncFailed')}</span>
             </div>
           ) : null}
           <div className={styles.content}>

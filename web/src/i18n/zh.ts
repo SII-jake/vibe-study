@@ -9,6 +9,8 @@ export const zh = {
   sessionListLoadFailed: '对话列表加载失败，请重试',
   sessionLoadFailed: '对话加载失败，请重试',
   sessionSaveFailed: '对话或附件尚未保存到本机，关闭页面可能丢失，请重试',
+  syncFailed: '对话尚未同步到服务器，其他设备可能看不到最新内容，请检查网络',
+  syncTooLarge: '对话已超出服务器接收上限，尚未同步；请检查服务端请求体上限设置',
   sessionDeleteFailed: '删除对话失败，请重试',
   settings: '设置',
   appName: 'vibe study',

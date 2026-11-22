@@ -2,7 +2,14 @@ import { createNodeStore, isValidNodesPayload } from './node-store.mjs'
 import { apiNeedsAuth } from './auth.mjs'
 import { isConfigured } from './config.mjs'
 
-const MAX_BODY_BYTES = 1024 * 1024
+/**
+ * 请求体上限（A，真机反馈 2026-11-22 远端 "H3多模态推理优化" 两端不一致）。
+ * 原值 1 MB 把同步写口卡死了：该会话单个节点的 web_search_tool_result 就有
+ * 657 KB，整库 PUT 体已达 1,046,219 字节，离 1,048,576 只剩 2,357 字节——
+ * 再发一轮问答必然超限，写入被丢，另一端永远拿不到。
+ * 个人自用规模下 32 MB 足够（nginx 侧 client_max_body_size 为 50m，不是瓶颈）。
+ */
+const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
 
 function sendJson(response, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload)
@@ -15,20 +22,34 @@ function sendJson(response, status, payload, extraHeaders = {}) {
   response.end(body)
 }
 
-function readBody(request) {
+/**
+ * 读取请求体（B，同一次真机反馈）。
+ * 修复前超限直接 `request.destroy()`：客户端拿不到任何 HTTP 状态码，只看到
+ * "fetch failed"，前端把它当网络抖动静默吞掉——写入失败却毫无痕迹。
+ * 现在超限后不再断连接：继续消费剩余数据（丢弃，不缓存）后回结构化结果，
+ * 调用方据此回可读的 413，客户端能区分"包太大"与"断网"。
+ */
+function readBody(request, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
+    let tooLarge = false
     request.on('data', (chunk) => {
       size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('请求体过大'))
-        request.destroy()
+      if (size > maxBytes) {
+        tooLarge = true
+        chunks.length = 0
         return
       }
       chunks.push(chunk)
     })
-    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    request.on('end', () => {
+      resolve(
+        tooLarge
+          ? { ok: false, limit: maxBytes, size }
+          : { ok: true, body: Buffer.concat(chunks).toString('utf8') },
+      )
+    })
     request.on('error', reject)
   })
 }
@@ -43,6 +64,8 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
   const nodeStore = opts.nodeStore ?? createNodeStore()
   /** 登录判定来自 config.auth —— 未配置口令时全部放行，与引入拦截前一致 */
   const auth = opts.auth ?? config.auth
+  /** 请求体上限可注入：测试用小值验证超限路径，不必真造 32 MB */
+  const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
 
   return async function handler(request, response) {
     const url = new URL(request.url, 'http://localhost')
@@ -67,8 +90,20 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
     // 多设备同步：整棵问答树写口。乐观锁按 baseVersion 校验，冲突即拒绝并回最新数据。
     if (request.method === 'PUT' && url.pathname === '/api/nodes') {
       let payload
+      let read
       try {
-        payload = JSON.parse(await readBody(request))
+        read = await readBody(request, maxBodyBytes)
+      } catch {
+        sendJson(response, 400, { error: '请求体不是合法 JSON' })
+        return
+      }
+      // 超限回可读的 413（修复前是直接断连接，客户端只见 "fetch failed"）
+      if (!read.ok) {
+        sendJson(response, 413, { error: '请求体过大', limit: read.limit, size: read.size })
+        return
+      }
+      try {
+        payload = JSON.parse(read.body)
       } catch {
         sendJson(response, 400, { error: '请求体不是合法 JSON' })
         return
@@ -112,12 +147,18 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
         return
       }
       let rawBody
+      let read
       try {
-        rawBody = await readBody(request)
+        read = await readBody(request, maxBodyBytes)
       } catch {
         sendJson(response, 400, { error: '请求体不是合法 JSON' })
         return
       }
+      if (!read.ok) {
+        sendJson(response, 413, { error: '请求体过大', limit: read.limit, size: read.size })
+        return
+      }
+      rawBody = read.body
       let upstream
       try {
         upstream = await fetchImpl(`${config.deepseekBase}/anthropic/v1/messages`, {
