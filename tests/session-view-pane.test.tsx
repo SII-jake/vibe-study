@@ -619,3 +619,53 @@ describe('桌面端「返回上一级」在标题行内', () => {
     expect(container.textContent).not.toContain('返回上一级')
   }, 20000)
 })
+
+// 真机反馈 2026-11-22：右栏比中栏低了一条工具栏的高度。
+// 原因：右栏 lane 里带着自己的 44px 顶栏（[data-right-header]：「子对话 / 设为当前 /
+// ✕」），而中栏没有对应结构，两栏内容起点因此差 44px。控件改到顶部标题行后，
+// 右栏 lane 的首个子元素直接是消息列表，两栏内容自然齐平。
+describe('右栏控件在标题行内（两栏内容顶对齐）', () => {
+  it('打开子对话后，控件进标题行且右栏 lane 内没有独立顶栏', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 点分支卡：子对话进右栏
+    const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
+    expect(card).toBeTruthy()
+    act(() => { card.click() })
+    expect(container.textContent).toContain('设为当前')
+
+    // 效果：控件都落在标题行容器内
+    const header = container.querySelector('[data-session-header]')
+    expect(header).toBeTruthy()
+    expect(header!.textContent).toContain('子对话')
+    const promote = [...header!.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('设为当前'),
+    )
+    expect(promote).toBeTruthy()
+    expect(header!.querySelector('button[aria-label="关闭"]')).toBeTruthy()
+
+    // 不变量：lane 内不再有独立顶栏；右栏包装层只剩消息列表一个子元素
+    expect(container.querySelector('[data-right-header]')).toBeNull()
+    const rightLane = [...container.querySelectorAll('[data-lane]')][1]
+    const rightPane = rightLane!.firstElementChild!
+    expect(rightPane.hasAttribute('data-right-pane')).toBe(true)
+    expect(rightPane.children.length).toBe(1)
+  }, 20000)
+
+  it('✕关闭后标题行不再出现子对话控件（右栏空态）', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
+    act(() => { card.click() })
+    const closeBtn = [...container.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === '关闭',
+    )!
+    expect(closeBtn).toBeTruthy()
+    act(() => { closeBtn.click() })
+    expect(container.textContent).not.toContain('设为当前')
+  }, 20000)
+})

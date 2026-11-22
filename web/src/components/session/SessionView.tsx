@@ -305,6 +305,32 @@ export const SessionView = ({
               返回上一级
             </button>
           ) : null}
+          {/* 右栏子对话控件：原本是右栏 lane 内一条 44px 顶栏，把右栏内容整体
+              压低一条工具栏的高度、与中栏错开（真机反馈 2026-11-22）。移进标题行
+              右端后右栏 lane 首个子元素直接是消息列表，两栏内容自然顶对齐。 */}
+          {rightSession ? (
+            <div className={styles.headerRight} data-right-controls>
+              <span className={styles.headerRightLabel}>子对话</span>
+              <button
+                type="button"
+                className={styles.headerAction}
+                onClick={() => setPane((p) => planPromote(p))}
+              >
+                设为当前
+              </button>
+              <button
+                type="button"
+                className={styles.headerActionClose}
+                aria-label="关闭"
+                onClick={() => {
+                  setPane((p) => ({ ...p, rightNodeId: null }))
+                  setReturnAnchor(null)
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
       {desktopTrack || isMobile ? (
@@ -325,28 +351,12 @@ export const SessionView = ({
             if (pane.rightNodeId !== null && lane.nodeId === pane.rightNodeId) {
               return rightSession ? (
                 <div data-right-pane>
-                  <div data-right-header>
-                    <span>子对话</span>
-                    <button type="button" onClick={() => setPane((p) => planPromote(p))}>
-                      设为当前
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="关闭"
-                      onClick={() => {
-                                                setPane((p) => ({ ...p, rightNodeId: null }))
-                        setReturnAnchor(null)
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
                   <MessageList
                     session={rightSession}
                     streaming={streaming}
                     footer={laneFooter(pane.rightNodeId ?? '')}
                     onChildOpen={(nodeId) => openChild(nodeId, 'right')}
-                            />
+                  />
                 </div>
               ) : null
             }

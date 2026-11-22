@@ -68,32 +68,27 @@
   min-height: 0;
 }
 
-/* 右栏顶栏「子对话 / 设为当前 / ✕」（真机反馈 2026-11-22②）：
- * 之前只渲染了裸元素、一条样式都没写，按钮以浏览器默认样式出现（灰底方框、
- * 字号不统一、与整体风格割裂）。这里补齐成与 laneHeader 胶囊一致的形态。 */
-[data-right-header] {
+/* 右栏子对话控件（原为右栏 lane 内 44px 顶栏，真机反馈 2026-11-22：
+ * 那条顶栏把右栏内容整体压低一条工具栏高度、与中栏错开）。移进标题行右端，
+ * 右栏 lane 首个子元素直接是消息列表，两栏内容随之顶对齐。
+ * margin-left:auto 把它顶到行尾，标题与「返回上一级」留在左侧。 */
+.headerRight {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  height: 44px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  box-sizing: border-box;
+  margin-left: auto;
+  padding-right: 6px;
 }
 
-[data-right-header] > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.headerRightLabel {
   font-size: 13px;
   font-weight: 600;
   color: var(--dsw-alias-label-secondary);
 }
 
-[data-right-header] button {
+.headerAction,
+.headerActionClose {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -110,12 +105,13 @@
   transition: background-color 0.15s ease;
 }
 
-[data-right-header] button:hover {
+.headerAction:hover,
+.headerActionClose:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* 关闭按钮是纯图标（✕），不需要文字内边距，做成正方形更稳 */
-[data-right-header] button[aria-label='关闭'] {
+.headerActionClose {
   width: 28px;
   padding: 0;
   font-size: 13px;
