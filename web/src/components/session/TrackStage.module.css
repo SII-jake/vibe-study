@@ -27,3 +27,31 @@
   display: flex;
   flex-direction: column;
 }
+
+/* 分栏拖拽条（真机反馈③：中/右两栏宽度无法手动调整）。
+ * 横向 10px 命中区（手感），视觉上是一条 2px 中线——太窄在手机上点不中。 */
+.gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  margin-left: -5px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.gutter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: var(--dsw-alias-border-l2);
+  transition: background-color 0.15s ease;
+}
+
+.gutter:hover::after {
+  background: var(--dsw-alias-brand-primary);
+}

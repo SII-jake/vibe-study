@@ -84,3 +84,46 @@ export function laneWidthOf(
   if (singlePane) return viewportWidth
   return index === length - 1 ? Math.max(0, viewportWidth - centerWidth) : centerWidth
 }
+
+/**
+ * 分栏比例（中栏占内容区宽度的比例）。
+ * 真机反馈 2026-11-22②③：中/右两栏原来无法手动调整，且右侧 lane 以
+ * window.innerWidth 当视口宽——比真实内容区多出整整一个侧栏，右边被裁掉。
+ * 修复：宽度一律以舞台容器自身宽度为基准，比例可拖拽并持久化。
+ */
+export const DEFAULT_PANE_RATIO = 0.5
+/** 中栏最小 30%、最大 70%——再窄正文不可读，再宽右栏失去意义。 */
+export const MIN_PANE_RATIO = 0.3
+export const MAX_PANE_RATIO = 0.7
+
+/** 把任意比例夹进 [MIN_PANE_RATIO, MAX_PANE_RATIO]；非有限值回落默认。 */
+export function clampPaneRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return DEFAULT_PANE_RATIO
+  return Math.min(MAX_PANE_RATIO, Math.max(MIN_PANE_RATIO, ratio))
+}
+
+/**
+ * 两栏宽度（px）：中栏 = 容器宽 × 比例，右栏吃掉余宽。
+ * 两者之和恒等于容器宽——末格不再溢出（右侧内容不再被裁）。
+ */
+export function paneWidths(
+  containerWidth: number,
+  ratio: number,
+): { centerWidth: number; rightWidth: number } {
+  const width = Math.max(0, Math.floor(containerWidth))
+  const centerWidth = Math.min(width, Math.floor(width * clampPaneRatio(ratio)))
+  return { centerWidth, rightWidth: width - centerWidth }
+}
+
+/**
+ * 拖拽指针位置 → 新的中栏比例。
+ * 以容器左边界与宽度换算；容器尚未测量（宽 0）时回落默认比例。
+ */
+export function ratioFromPointer(
+  containerLeft: number,
+  containerWidth: number,
+  pointerX: number,
+): number {
+  if (!(containerWidth > 0)) return DEFAULT_PANE_RATIO
+  return clampPaneRatio((pointerX - containerLeft) / containerWidth)
+}

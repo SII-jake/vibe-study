@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
 import {
@@ -11,8 +11,14 @@ import {
 } from '../../services/chat/paneState.js'
 import { laneAncestors, rootedConversation } from '../../services/chat/rootedConversation.js'
 import { askAt } from '../../services/chat/store.js'
-import { computeTrack, routeTrack } from '../../services/chat/trackView.js'
+import {
+  computeTrack,
+  paneWidths,
+  ratioFromPointer,
+  routeTrack,
+} from '../../services/chat/trackView.js'
 import type { Session } from '../../services/chat/types.js'
+import { setPaneRatio, useSettings } from '../../services/settings.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
 import { MessageList } from '../messages/MessageList.js'
 import { AskActionBar } from '../messages/AskActionBar.js'
@@ -152,8 +158,46 @@ export const SessionView = ({
     }
   }, [])
 
-  const centerWidth = Math.floor((containerRef.current?.clientWidth ?? window.innerWidth) / 2)
-  const viewportWidth = window.innerWidth
+  // 舞台宽度必须实测容器，不能用 window.innerWidth——后者含侧栏占位，
+  // 比真实内容区多出整整一个侧栏宽，末格（右栏）因此被算宽、右边内容被裁
+  // （真机反馈 2026-11-22②③）。ResizeObserver 跟随侧栏展开/收起。
+  const [stageWidth, setStageWidth] = useState(0)
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    const measure = () => setStageWidth(element.clientWidth)
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const paneRatio = useSettings((state) => state.paneRatio)
+  // 首帧尚未测量时按窗口宽兜底，测完立即被真实值覆盖（不留空白闪一下）
+  const viewportWidth = stageWidth > 0 ? stageWidth : window.innerWidth
+  const { centerWidth } = paneWidths(viewportWidth, paneRatio)
+
+  /** 拖分栏：按下后按指针横向位置换比例，抬起解绑（比例落盘下次沿用）。 */
+  const onGutterDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = containerRef.current
+    if (!element) return
+    event.preventDefault()
+    const rect = element.getBoundingClientRect()
+    const move = (moveEvent: PointerEvent) => {
+      setPaneRatio(ratioFromPointer(rect.left, rect.width, moveEvent.clientX))
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
   // 起草位：桌面 + 有选区 + 处于提问输入中
   const desktopDraft = !isMobile && askSelection && asking
   // 右栏子对话位：有 rightNodeId 时从会话派生该分支根起的可见链
@@ -270,6 +314,8 @@ export const SessionView = ({
           centerWidth={centerWidth}
           viewportWidth={viewportWidth}
           singlePane={isMobile}
+          gutterAt={desktopTrack ? centerWidth : undefined}
+          onGutterDrag={onGutterDrag}
           renderLane={(lane) => {
             // 手机端整屏下潜（§三）：lane 即路由链上一层对话；视口钉末格 =
             // 用户看到的那层问答，父层随轨道留屏外（返回=右移一格找回）

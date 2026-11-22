@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
+import { clampPaneRatio, DEFAULT_PANE_RATIO } from './chat/trackView.js'
 
 export type Locale = 'zh-CN' | 'en-US'
 
@@ -17,6 +18,8 @@ type Settings = {
   thinking: boolean
   search: boolean
   siderCollapsed: boolean
+  /** 桌面双栏的中栏占比（0.3–0.7）；拖拽分隔条后持久化，下次打开沿用。 */
+  paneRatio: number
 }
 
 const KEYS = {
@@ -28,6 +31,7 @@ const KEYS = {
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
   siderCollapsed: 'chat-demo:sider-collapsed',
+  paneRatio: 'chat-demo:pane-ratio',
 } as const
 
 const read = (key: string) => {
@@ -87,6 +91,12 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+/** 分栏比例：未保存/坏值时用 0.5（与修复前的居中等分一致）。 */
+const initialPaneRatio = (): number => {
+  const saved = Number(read(KEYS.paneRatio))
+  return Number.isFinite(saved) && saved > 0 ? clampPaneRatio(saved) : DEFAULT_PANE_RATIO
+}
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   locale: initialLocale(),
@@ -96,6 +106,7 @@ export const useSettings = create<Settings>(() => ({
   thinking: read(KEYS.thinking) === 'true',
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
+  paneRatio: initialPaneRatio(),
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -137,4 +148,11 @@ export const setSearch = (search: boolean) => {
 export const setSiderCollapsed = (siderCollapsed: boolean) => {
   write(KEYS.siderCollapsed, String(siderCollapsed))
   useSettings.setState({ siderCollapsed })
+}
+
+/** 拖拽分隔条：比例先夹进合法区间再落盘。 */
+export const setPaneRatio = (paneRatio: number) => {
+  const ratio = clampPaneRatio(paneRatio)
+  write(KEYS.paneRatio, String(ratio))
+  useSettings.setState({ paneRatio: ratio })
 }
