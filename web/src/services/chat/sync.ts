@@ -30,20 +30,45 @@ let pendingTask: { sessions: Session[]; fetchImpl: SyncFetch } | null = null
 /**
  * 本地已删除会话的墓碑集合：远端若还留着这些 id，合并时一律忽略，
  * 避免「删掉的会话被别的设备/下次启动的整棵快照又拉回来」。
- * 内存态即可——真正的清理是下一次成功推送（存活列表里没有它们）。
+ * 必须落盘：只在内存里的话，离线删除后刷新页面墓碑就丢了，远端那份会复活。
  */
-const deletedIds = new Set<string>()
+const DELETED_IDS_KEY = 'chat-demo:deleted-sessions'
+/** 墓碑上限：个人自用规模远小于此，超出按插入序丢最旧的，防止无限增长。 */
+const DELETED_IDS_LIMIT = 500
+
+const readDeletedIds = (): string[] => {
+  try {
+    const raw = localStorage.getItem(DELETED_IDS_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const persistDeletedIds = (ids: Set<string>) => {
+  try {
+    localStorage.setItem(DELETED_IDS_KEY, JSON.stringify([...ids].slice(-DELETED_IDS_LIMIT)))
+  } catch {
+    // 存储不可用时只在内存中生效（本次会话内仍然有效）
+  }
+}
+
+const deletedIds = new Set<string>(readDeletedIds())
 
 export const getSyncBaseVersion = () => baseVersion
 
 /** 标记本地删除：后续合并/对齐都跳过这些 id。 */
 export const markSessionDeleted = (id: string) => {
   deletedIds.add(id)
+  persistDeletedIds(deletedIds)
 }
 
 /** 测试与「清空历史」用：清掉墓碑（全量替换后旧 id 不再有意义）。 */
 export const clearDeletedSessions = () => {
   deletedIds.clear()
+  persistDeletedIds(deletedIds)
 }
 
 /** 当前墓碑快照（只读副本，供合并调用方传入）。 */

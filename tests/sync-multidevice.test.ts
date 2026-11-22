@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // 多端同步修复（真机反馈 2026-11-22：网页版与手机版聊天数据没完全同步）。
 // 三条缺陷：①只在启动拉一次，另一端改了看不到；②409 冲突后 baseVersion 不更新，
 // 之后所有推送静默失败；③删除只删本地，远端还在 → 下次启动又复活。
@@ -105,5 +106,33 @@ describe('推送把删除集合带给服务端（远端真正移除）', () => {
       ((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body as string) ?? '{}',
     )
     expect(body.nodes.map((n: { id: string }) => n.id)).toEqual(['keep'])
+  })
+})
+
+describe('删除墓碑落盘（离线删除后刷新不能复活）', () => {
+  it('markSessionDeleted 写进 localStorage；墓碑随快照跨页面存活', async () => {
+    localStorage.clear()
+    vi.resetModules()
+    const sync = await import('../web/src/services/chat/sync')
+    sync.markSessionDeleted('gone-1')
+    const raw = localStorage.getItem('chat-demo:deleted-sessions')
+    expect(raw).not.toBeNull()
+    expect(JSON.parse(raw as string)).toContain('gone-1')
+
+    // 模拟刷新页面：模块重新加载后墓碑仍在（否则远端会话会复活）
+    vi.resetModules()
+    const reloaded = await import('../web/src/services/chat/sync')
+    expect([...reloaded.getDeletedSessionIds()]).toContain('gone-1')
+  })
+
+  it('墓碑上限 500，超出丢最旧的，不会无限增长', async () => {
+    localStorage.clear()
+    vi.resetModules()
+    const sync = await import('../web/src/services/chat/sync')
+    for (let i = 0; i < 510; i++) sync.markSessionDeleted(`id-${i}`)
+    const stored = JSON.parse(localStorage.getItem('chat-demo:deleted-sessions') as string) as string[]
+    expect(stored.length).toBe(500)
+    expect(stored).toContain('id-509')
+    expect(stored).not.toContain('id-0')
   })
 })
