@@ -18,3 +18,12 @@ describe('应用品牌名统一', () => {
     expect(title.toLowerCase()).not.toContain('demo')
   })
 })
+
+// 2026-11-22 真机 Debug 窗口：GET /favicon.ico 404（站点从未声明图标，
+// 浏览器自动去要 /favicon.ico 而该文件不存在）。声明内联图标后浏览器不再发这个请求。
+describe('站点图标声明', () => {
+  it('index.html 声明了 rel="icon"，避免浏览器自动请求不存在的 /favicon.ico', () => {
+    const html = readFileSync('web/src/index.html', 'utf8')
+    expect(html).toMatch(/rel="icon"/)
+  })
+})

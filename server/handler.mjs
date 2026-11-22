@@ -129,10 +129,27 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
     // 版本号是快照的唯一标识（每次 save 递增），因此可以直接做 ETag 依据。
     if (request.method === 'GET' && url.pathname === '/api/nodes') {
       const version = nodeStore.getVersion()
-      const etag = `"nodes-${version}"`
+      const body = JSON.stringify({ version, nodes: nodeStore.getNodes() })
+      // 内容编码是"所选表示"的一部分：gzip 与 identity 是两个字节流完全不同的
+      // 表示（999,743 vs 2,244,092 字节），必须各有自己的实体标签（RFC 9110 §8.8.1）。
+      // 2026-11-22 真机 Debug 窗口的 net::ERR_CONTENT_LENGTH_MISMATCH 就是这里：
+      // 上一版两个编码共用 "nodes-<版本>"，浏览器缓存按 URL 存条目、用同一 ETag
+      // 当校验基准，编码一切换长度对不上，整个请求被判失败。
+      //
+      // useGzip 必须与 sendMaybeGzip 的实际行为一致：体积小于 GZIP_MIN_BYTES 时
+      // 它不压缩，此时表示其实是 identity，标签不能带 -gzip（否则又是标签与
+      // 实际编草不符，同一条 MISMATCH 换个体积就复现）。
+      const useGzip = acceptsGzip(request) && Buffer.byteLength(body) >= GZIP_MIN_BYTES
+      const etag = `"nodes-${version}${useGzip ? '-gzip' : ''}"`
       const commonHeaders = {
         'X-Nodes-Version': String(version),
         ETag: etag,
+        // 表示随 Accept-Encoding 变化，所有响应（含 304）都要声明（RFC 9110 §12.5.5），
+        // 否则缓存会把 gzip 的响应发给只接受 identity 的客户端。
+        Vary: 'Accept-Encoding',
+        // 整份快照不做分段传输：明确告知客户端别试 Range，避免它按 Range 续传时
+        // 收到整份 200 而误判长度。
+        'Accept-Ranges': 'none',
         // private：这是鉴权后的数据，不允许共享缓存留存；
         // no-cache：可以存但必须回源校验，正是 ETag/304 生效的前提。
         'Cache-Control': 'private, no-cache',
@@ -142,11 +159,13 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
         response.end()
         return
       }
-      const body = JSON.stringify({ version, nodes: nodeStore.getNodes() })
-      await sendMaybeGzip(response, 200, body, {
-        'Content-Type': 'application/json; charset=utf-8',
-        ...commonHeaders,
-      }, acceptsGzip(request))
+      await sendMaybeGzip(
+        response,
+        200,
+        body,
+        { 'Content-Type': 'application/json; charset=utf-8', ...commonHeaders },
+        useGzip,
+      )
       return
     }
 
