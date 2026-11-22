@@ -170,13 +170,28 @@ export function createStaticHandler(root, opts = {}) {
     }
 
     await new Promise((resolve) => {
-      const stream = createReadStream(file)
-      const source = useGzip ? stream.pipe(createGzip()) : stream
+      const fileStream = createReadStream(file)
+      const gzip = useGzip ? createGzip() : null
+      const source = gzip ? fileStream.pipe(gzip) : fileStream
+      let settled = false
+      // 必须显式销毁读流：pipe 在目标关闭时只会解绑并暂停源，文件描述符不会回收。
+      // 2026-11-22 真机"css 一直卡死"的根因就是这个——浏览器/WebView 中途取消请求后
+      // 每次泄漏一个 fd（实测 30 次中断残留 15 个），累积到上限后新请求再也拿不到
+      // 描述符。远端 pid 55216 里那条 fd 25 -> dist/static/css/main.e4ff919b.css
+      // 就是一次被取消的请求留下的。销毁已结束的流是空操作，正常完成路径不受影响。
+      const release = () => {
+        if (settled) return
+        settled = true
+        fileStream.destroy()
+        gzip?.destroy()
+        resolve()
+      }
       source.on('error', () => {
         response.destroy()
-        resolve()
+        release()
       })
-      response.on('close', resolve)
+      response.on('close', release)
+      response.on('error', release)
       source.pipe(response)
     })
   }
