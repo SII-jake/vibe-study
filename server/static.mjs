@@ -131,9 +131,13 @@ export function createStaticHandler(root, opts = {}) {
     }
 
     const direct = await readFileIfExists(target === root ? indexFile : target)
-    // 带指纹的产物缺失就是缺失，不能回退成入口文件，否则浏览器会解析出错。
-    const isAsset = pathname.startsWith('/assets/')
-    const file = direct ?? (isAsset ? null : await readFileIfExists(indexFile))
+    // 带扩展名的请求一律视为静态产物：缺失就是缺失，绝不能回退成 index.html。
+    // 2026-11-22 排查：构建产物落在 /static/ 而非 /assets/，旧的 startsWith('/assets/')
+    // 判定漏掉了它——旧 hash 的 css/js 因此拿到 200 + text/html 的 index.html，
+    // 配合下面的 nosniff 被浏览器拒绝当作样式/脚本应用，页面永久无样式，
+    // 表现就是用户说的"这个 css 一直卡死"。无扩展名的前端路由仍回 index.html。
+    const looksLikeAsset = extname(pathname) !== ''
+    const file = direct ?? (looksLikeAsset ? null : await readFileIfExists(indexFile))
 
     if (!file) {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
