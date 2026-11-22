@@ -1,6 +1,10 @@
 import { createNodeStore, isValidNodesPayload } from './node-store.mjs'
 import { apiNeedsAuth } from './auth.mjs'
 import { isConfigured } from './config.mjs'
+import { gzip } from 'node:zlib'
+import { promisify } from 'node:util'
+
+const gzipAsync = promisify(gzip)
 
 /**
  * 请求体上限（A，真机反馈 2026-11-22 远端 "H3多模态推理优化" 两端不一致）。
@@ -10,6 +14,44 @@ import { isConfigured } from './config.mjs'
  * 个人自用规模下 32 MB 足够（nginx 侧 client_max_body_size 为 50m，不是瓶颈）。
  */
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
+
+/** 小于这个体积不值得压缩（头部开销可能比省下的还多）。 */
+const GZIP_MIN_BYTES = 1024
+
+function acceptsGzip(request) {
+  const header = request.headers['accept-encoding']
+  return typeof header === 'string' && /\bgzip\b/.test(header)
+}
+
+/** 按 If-None-Match 判定是否命中（支持逗号分隔列表、W/ 弱校验前缀与 *）。 */
+function etagMatches(header, etag) {
+  if (typeof header !== 'string') return false
+  return header.split(',').some((part) => {
+    const value = part.trim().replace(/^W\//, '')
+    return value === '*' || value === etag
+  })
+}
+
+/**
+ * 发送可能被 gzip 的响应。
+ * 压缩后长度未知，改回分块传输；不压缩时给出准确 Content-Length。
+ */
+async function sendMaybeGzip(response, status, text, headers, useGzip) {
+  const raw = Buffer.from(text, 'utf8')
+  if (!useGzip || raw.length < GZIP_MIN_BYTES) {
+    response.writeHead(status, { ...headers, 'Content-Length': raw.length })
+    response.end(raw)
+    return
+  }
+  const packed = await gzipAsync(raw)
+  response.writeHead(status, {
+    ...headers,
+    'Content-Encoding': 'gzip',
+    Vary: 'Accept-Encoding',
+    'Content-Length': packed.length,
+  })
+  response.end(packed)
+}
 
 function sendJson(response, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload)
@@ -76,14 +118,35 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
       return
     }
 
-    // 多设备同步：整棵问答树读口。X-Nodes-Version 头供前端低成本轮询感知远端更新。
+    // 多设备同步：整棵问答树读口。
+    //
+    // 2026-11-22 实测：远端 H3 会话涨到 153 条消息后整库快照 2,244,092 字节，
+    // 未压缩且无 304，公网出网带宽约 180 KB/s，每次整棵拉取要 10.9~12.3 秒；
+    // 切回标签页/窗口聚焦都会新起一次，主线程被占满，任何新 css/js 请求都排在
+    // 后面等——观感就是"这个 css 一直卡死"。这里补两条：
+    //   ① gzip：实测 2.24 MB → 0.99 MB，省 56%；
+    //   ② ETag/304：版本号未变时直接回 304，切回标签页的绝大多数情况零传输。
+    // 版本号是快照的唯一标识（每次 save 递增），因此可以直接做 ETag 依据。
     if (request.method === 'GET' && url.pathname === '/api/nodes') {
-      sendJson(
-        response,
-        200,
-        { version: nodeStore.getVersion(), nodes: nodeStore.getNodes() },
-        { 'X-Nodes-Version': String(nodeStore.getVersion()) },
-      )
+      const version = nodeStore.getVersion()
+      const etag = `"nodes-${version}"`
+      const commonHeaders = {
+        'X-Nodes-Version': String(version),
+        ETag: etag,
+        // private：这是鉴权后的数据，不允许共享缓存留存；
+        // no-cache：可以存但必须回源校验，正是 ETag/304 生效的前提。
+        'Cache-Control': 'private, no-cache',
+      }
+      if (etagMatches(request.headers['if-none-match'], etag)) {
+        response.writeHead(304, commonHeaders)
+        response.end()
+        return
+      }
+      const body = JSON.stringify({ version, nodes: nodeStore.getNodes() })
+      await sendMaybeGzip(response, 200, body, {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...commonHeaders,
+      }, acceptsGzip(request))
       return
     }
 

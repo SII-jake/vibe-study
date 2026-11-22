@@ -26,6 +26,14 @@ let pushTimer: ReturnType<typeof setTimeout> | null = null
 let uploadChain: Promise<void> = Promise.resolve()
 /** 尚未触发的防抖任务（flushPush 可直接提前执行它，让测试与切页前冲刷可控）。 */
 let pendingTask: { sessions: Session[]; fetchImpl: SyncFetch } | null = null
+/**
+ * 拉取并发守卫：同一时刻只允许一个整棵拉取在飞，重复触发复用同一个 Promise。
+ * 2026-11-22 实测：整库快照 2.24 MB、公网约 180 KB/s，一次拉取要 10.9~12.3 秒；
+ * 切回标签页与窗口聚焦都会调用 pullSessions，没有守卫时来回切几次就堆起多个
+ * 2.24 MB 传输，主线程被占满，新的 css/js 请求只能排在后面等——观感就是
+ * "这个 css 一直卡死"。守卫不缓存结果：完成后清空，下次触发照常重新请求。
+ */
+let pullInFlight: Promise<{ sessions: Session[]; version: number } | null> | null = null
 
 /**
  * 本地已删除会话的墓碑集合：远端若还留着这些 id，合并时一律忽略，
@@ -206,19 +214,31 @@ export async function pullSessions(
   }: { localSessions: Session[]; deletedIds?: ReadonlySet<string> },
   fetchImpl: SyncFetch,
 ): Promise<{ sessions: Session[]; version: number } | null> {
-  let response: Response
+  // 已有拉取在飞：直接复用，不再发起第二个 2.24 MB 下载（切页/聚焦会连发）。
+  if (pullInFlight) return pullInFlight
+  pullInFlight = (async () => {
+    let response: Response
+    try {
+      response = await fetchImpl('/api/nodes')
+    } catch {
+      return null
+    }
+    if (!response.ok) return null
+    const body = (await response.json().catch(() => null)) as
+      | { version?: number; nodes?: unknown[] }
+      | null
+    if (!body || typeof body.version !== 'number') return null
+    const remote = nodesToSessions(body.nodes ?? [])
+    const merged = mergeSessions(localSessions, remote, deletedIdsOverride)
+    baseVersion = body.version
+    return { sessions: merged, version: body.version }
+  })()
   try {
-    response = await fetchImpl('/api/nodes')
-  } catch {
-    return null
+    return await pullInFlight
+  } finally {
+    // 失败也要清空：否则一次网络抖动会把后续拉取永久锁死。
+    pullInFlight = null
   }
-  if (!response.ok) return null
-  const body = (await response.json().catch(() => null)) as { version?: number; nodes?: unknown[] } | null
-  if (!body || typeof body.version !== 'number') return null
-  const remote = nodesToSessions(body.nodes ?? [])
-  const merged = mergeSessions(localSessions, remote, deletedIdsOverride)
-  baseVersion = body.version
-  return { sessions: merged, version: body.version }
 }
 
 /**
