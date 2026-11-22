@@ -109,6 +109,60 @@
   min-height: 0;
 }
 
+/* 右栏顶栏「子对话 / 设为当前 / ✕」（真机反馈 2026-11-22②）：
+ * 之前只渲染了裸元素、一条样式都没写，按钮以浏览器默认样式出现（灰底方框、
+ * 字号不统一、与整体风格割裂）。这里补齐成与 laneHeader 胶囊一致的形态。 */
+[data-right-header] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  box-sizing: border-box;
+}
+
+[data-right-header] > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+[data-right-header] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+[data-right-header] button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* 关闭按钮是纯图标（✕），不需要文字内边距，做成正方形更稳 */
+[data-right-header] button[aria-label='关闭'] {
+  width: 28px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
 /* 标题行内「返回上一级」（真机反馈①）：与标题同行的小型按钮，不再独占一行 */
 .headerBack {
   flex-shrink: 0;
