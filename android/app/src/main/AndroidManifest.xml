@@ -24,6 +24,13 @@
 
         </activity>
 
+        <!-- 壳内网页预览（点搜索结果/引用文章留在应用内）：独立 Activity，
+             由 MainActivity.openLinkPreview() 以 URL 作 data 启动。 -->
+        <activity
+            android:name=".LinkPreviewActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

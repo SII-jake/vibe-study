@@ -63,9 +63,10 @@ import java.security.cert.CertificateException;
  */
 public class MainActivity extends BridgeActivity {
 
-    /** 自签服务白名单（host + 证书 sha256 指纹的双匹配，见注释 3） */
-    private static final String TRUSTED_HOST = "8.153.198.42";
-    private static final String TRUSTED_CERT_SHA256 =
+    /** 自签服务白名单（host + 证书 sha256 指纹的双匹配，见注释 3）——
+     *  包级可见：壳内网页预览 LinkPreviewActivity 复用同一枚指纹，不放宽放行面。 */
+    static final String TRUSTED_HOST = "8.153.198.42";
+    static final String TRUSTED_CERT_SHA256 =
         "AF:3C:B1:3C:97:89:3C:F6:41:6F:C8:A7:30:93:D7:30:1B:D9:1E:16:06:E1:83:0F:00:ED:D6:EE:0C:0A:86:83";
 
     /** 页面回写：当前焦点是否在可编辑元素（输入框/文本域/contenteditable） */
@@ -108,7 +109,7 @@ public class MainActivity extends BridgeActivity {
                 // file://）时的 http 导航是"把 WebView 拉进会话页的那一跳"——host 与
                 // 服务器天然不同源，绝不能按外链判；只有已在远程会话页里才谈外链。
                 if (isChatPage() && isExternalHttpUrl(request.getUrl())) {
-                    openInSystemBrowser(request.getUrl());
+                    openLinkPreview(request.getUrl());
                     return true;
                 }
                 return super.shouldOverrideUrlLoading(view, request);
@@ -129,7 +130,7 @@ public class MainActivity extends BridgeActivity {
                         // window.open 的导航以发起页为基准重新判定：本地壳资产时放行原位加载，
                         // 是会话页时才收为外链（判口与 shouldOverrideUrlLoading 同一份 isChatPage）。
                         if (url != null && isChatPage() && isExternalHttpUrl(url)) {
-                            openInSystemBrowser(url);
+                            openLinkPreview(url);
                         } else if (url != null) {
                             view.loadUrl(url.toString());
                         }
@@ -195,12 +196,19 @@ public class MainActivity extends BridgeActivity {
         return !current.getHost().equalsIgnoreCase(url.getHost());
     }
 
-    /** 外部页面交系统浏览器；没浏览器可接时静默不跳（不破坏会话页状态）。 */
-    private void openInSystemBrowser(Uri url) {
+    /**
+     * 外部页面在壳内预览（真机反馈 2026-11-22：点搜索结果/引用文章不该跳出应用，
+     * 与 DS demo 表现一致）。原实现一律 startActivity(ACTION_VIEW) 交给系统浏览器；
+     * 现在起独立的 LinkPreviewActivity 承接，顶栏返回键退网页历史再退出，
+     * 会话页状态与 WebView 历史都不受影响。
+     */
+    private void openLinkPreview(Uri url) {
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, url));
+            Intent intent = new Intent(this, LinkPreviewActivity.class);
+            intent.setData(url);
+            startActivity(intent);
         } catch (ActivityNotFoundException ignored) {
-            // 设备无浏览器：不打开，会话留在原地
+            // 极端 ROM 无 WebView 实现：不打开，会话留在原地
         }
     }
 
@@ -220,7 +228,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     /** 证书 sha256 指纹与 TRUSTED_CERT_SHA256 比对；拿不到证书按不信任处理。 */
-    private boolean certSha256Matches(SslError error) {
+    static boolean certSha256Matches(SslError error) {
         try {
             return TRUSTED_CERT_SHA256.equalsIgnoreCase(
                 sha256Hex((X509Certificate) error.getCertificate().getX509Certificate()));
