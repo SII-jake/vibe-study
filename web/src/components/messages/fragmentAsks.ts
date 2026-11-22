@@ -1,4 +1,5 @@
 import type { Session, UserMessage } from '../../services/chat/types.js'
+import { askQuestionText } from '../../services/chat/laneTitle.js'
 
 /**
  * 片段级追问引子（decisions/2026-11-19 §二.5 + 第二轮真机反馈修订）：
@@ -31,8 +32,7 @@ export function buildFragmentAskList(session: Session, anchorMessageId: string):
   ) as (UserMessage & { ask: { anchorText: string; title?: string } })[]
   const entries = asks.map((m) => ({
     rootId: m.id,
-    question:
-      m.ask.title ?? (m.content.split('我的追问：').at(-1)?.trim() ?? m.content),
+    question: m.ask.title ?? askQuestionText(m),
     anchorText: m.ask.anchorText,
     branchCount: 0,
   }))

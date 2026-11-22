@@ -10,6 +10,7 @@ import {
   type PaneView,
 } from '../../services/chat/paneState.js'
 import { laneAncestors, rootedConversation } from '../../services/chat/rootedConversation.js'
+import { laneTitle } from '../../services/chat/laneTitle.js'
 import { askAt } from '../../services/chat/store.js'
 import {
   computeTrack,
@@ -67,16 +68,10 @@ export const SessionView = ({
   } | null>(null)
   // 切换会话时 pane 跟随新主线重根
   const sessionRootId = session.rootMessageId ?? null
-  // 追问层的标题行内容（真机反馈①③）：lane 根的追问标题（ask.title，模型
-  // 在该轮回答流尾部按需生成）→ 未生成时剥出问题本体 → 主线标题兜底。
-  const laneRootMessage =
-    pane.centerNodeId && pane.centerNodeId !== sessionRootId
-      ? session.messages.find((m) => m.id === pane.centerNodeId)
-      : undefined
-  const laneAsk = laneRootMessage?.role === 'user' ? laneRootMessage : undefined
-  const headerTitle = laneAsk
-    ? (laneAsk.ask?.title ?? laneAsk.content.split('我的追问：').at(-1)?.trim() ?? title)
-    : title
+  // 两个 lane 各自的标题（真机反馈①③ + 2026-11-22）：口径同源，取该 lane 根
+  // 追问的 ask.title，未生成时回退提问本体，主线根层即会话标题。
+  const headerTitle = laneTitle(session, pane.centerNodeId, title)
+  const rightTitle = laneTitle(session, pane.rightNodeId, title)
   useEffect(() => {
     setPane({ centerNodeId: sessionRootId, rightNodeId: null })
     setAsking(false)
@@ -310,7 +305,7 @@ export const SessionView = ({
               右端后右栏 lane 首个子元素直接是消息列表，两栏内容自然顶对齐。 */}
           {rightSession ? (
             <div className={styles.headerRight} data-right-controls>
-              <span className={styles.headerRightLabel}>子对话</span>
+              <span className={styles.headerRightLabel}>{rightTitle}</span>
               <button
                 type="button"
                 className={styles.headerAction}

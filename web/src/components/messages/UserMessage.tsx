@@ -6,6 +6,7 @@ import { IconEditOutline16 } from '../base/icons.js'
 import { editMessage, retryUpload } from '../../services/chat/store.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import type { UserMessage as UserMessageType } from '../../services/chat/types.js'
+import { askQuestionText } from '../../services/chat/laneTitle.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
@@ -43,11 +44,7 @@ export const UserMessage = memo(function UserMessage({
 }) {
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(
-    message.ask
-      ? (message.content.split('我的追问：').at(-1)?.trim() ?? message.content)
-      : message.content,
-  )
+  const [draft, setDraft] = useState(askQuestionText(message))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMobile = useIsMobile()
   const canSend = !busy && (draft.trim() !== '' || message.files.length > 0)
@@ -124,9 +121,7 @@ export const UserMessage = memo(function UserMessage({
               编辑态仍以完整 content 起草，保持"编辑的是真实数据"。 */}
           {message.content ? (
             <div className={styles.bubble}>
-              {message.ask
-                ? (message.content.split('我的追问：').at(-1)?.trim() ?? message.content)
-                : message.content}
+              {askQuestionText(message)}
             </div>
           ) : null}
           <div className={styles.bottom}>

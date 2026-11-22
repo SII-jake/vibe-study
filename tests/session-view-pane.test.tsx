@@ -639,7 +639,7 @@ describe('右栏控件在标题行内（两栏内容顶对齐）', () => {
     // 效果：控件都落在标题行容器内
     const header = container.querySelector('[data-session-header]')
     expect(header).toBeTruthy()
-    expect(header!.textContent).toContain('子对话')
+    expect(header!.textContent).toContain('子问一')
     const promote = [...header!.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('设为当前'),
     )
@@ -667,5 +667,46 @@ describe('右栏控件在标题行内（两栏内容顶对齐）', () => {
     expect(closeBtn).toBeTruthy()
     act(() => { closeBtn.click() })
     expect(container.textContent).not.toContain('设为当前')
+  }, 20000)
+})
+
+// 真机反馈 2026-11-22：右栏最上面只显示固定的"子对话"，没有这栏自己的标题。
+// 口径与中栏（及手机端标题行）一致：该层根追问的 ask.title（模型生成的短标题）
+// 优先，未生成时回退提问本体。
+describe('右栏标题显示该层自己的标题', () => {
+  it('无 ask.title 时回退提问本体，不再显示固定文案「子对话」', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
+    act(() => { card.click() })
+
+    const controls = container.querySelector('[data-right-controls]')
+    expect(controls).toBeTruthy()
+    // nestedSession 的 q1 提问本体是「子问一」，没有 ask.title
+    expect(controls!.textContent).toContain('子问一')
+    expect(controls!.textContent).not.toContain('子对话')
+  }, 20000)
+
+  it('有 ask.title 时优先用模型生成的短标题', async () => {
+    const base = nestedSession()
+    const session = await seedStore({
+      ...base,
+      messages: base.messages.map((m) =>
+        m.id === 'q1' && m.role === 'user'
+          ? { ...m, ask: { ...m.ask!, title: '追问小标题' } }
+          : m,
+      ),
+    })
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
+    act(() => { card.click() })
+
+    const controls = container.querySelector('[data-right-controls]')
+    expect(controls!.textContent).toContain('追问小标题')
+    expect(controls!.textContent).not.toContain('子问一')
   }, 20000)
 })
