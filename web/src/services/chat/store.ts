@@ -8,7 +8,15 @@ import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import { rootedConversation } from './rootedConversation.js'
 import * as db from './db.js'
-import { getSyncBaseVersion, mergeSessions, schedulePush, syncOnce } from './sync.js'
+import {
+  getDeletedSessionIds,
+  getSyncBaseVersion,
+  markSessionDeleted,
+  mergeSessions,
+  pullSessions,
+  schedulePush,
+  syncOnce,
+} from './sync.js'
 import {
   clearAllDrafts,
   clearDraft,
@@ -254,12 +262,37 @@ export const bindChatPersistence = () => {
   const onVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
       save()
+      return
     }
+    // 切回标签页：增量拉一次远端（修复"只在启动拉一次，另一端改了看不到"）。
+    // 与启动对齐同口径——同 id 按 updatedAt 取新，本地独有保留；删除墓碑优先。
+    void (async () => {
+      if (!get().ready || get().importingHistory) return
+      const epoch = historyEpoch
+      const localSessions = await db.loadAllSessions()
+      const pulled = await pullSessions({ localSessions, deletedIds: getDeletedSessionIds() }, fetch)
+      if (!pulled || epoch !== historyEpoch) return
+      const localById = new Map(localSessions.map((s) => [s.id, s]))
+      const incoming = pulled.sessions.filter(
+        (s) => !localById.has(s.id) || (localById.get(s.id)?.updatedAt ?? 0) < s.updatedAt,
+      )
+      if (incoming.length === 0) return
+      for (const session of incoming) {
+        await db.saveSession(session)
+      }
+      if (epoch !== historyEpoch) return
+      const summaries = await db.loadSessionSummaries()
+      set({ sessions: sortSessions(summaries) })
+    })()
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
+  // 窗口聚焦同样补拉一次：桌面端两个窗口并排时不会触发 visibilitychange
+  const onFocus = () => onVisibilityChange()
+  window.addEventListener('focus', onFocus)
   window.addEventListener('pagehide', save)
   return () => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.removeEventListener('focus', onFocus)
     window.removeEventListener('pagehide', save)
   }
 }
@@ -320,7 +353,11 @@ export const initChat = (): Promise<void> => {
         void (async () => {
           const localSessions = await db.loadAllSessions()
           const aligned = await syncOnce(
-            { baseVersion: getSyncBaseVersion(), localSessions },
+            {
+              baseVersion: getSyncBaseVersion(),
+              localSessions,
+              deletedIds: getDeletedSessionIds(),
+            },
             fetch,
           )
           if (!aligned || epoch !== historyEpoch) return
@@ -336,7 +373,7 @@ export const initChat = (): Promise<void> => {
             set({ sessions: sortSessions(summaries) })
           }
           // 合并结果中的本地独有部分（别的端还没见过的）也推上去，完成首次双向对齐
-          const merged = mergeSessions(localSessions, aligned.sessions)
+          const merged = mergeSessions(localSessions, aligned.sessions, getDeletedSessionIds())
           if (merged.some((s) => (aligned.sessions.find((r) => r.id === s.id)?.updatedAt ?? -1) < s.updatedAt)) {
             schedulePush(merged, fetch, 0)
           }
@@ -543,6 +580,9 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     if (epoch !== historyEpoch) {
       return true
     }
+    // 同步墓碑：删掉的会话要从远端也消失——否则别的设备/下次启动的整棵快照
+    // 会把它拉回来（真机反馈 2026-11-22：网页版删掉的会话在手机版还在）。
+    markSessionDeleted(id)
     sessionLoads.delete(id)
     sessionAccess.delete(id)
     unsavedSessions.delete(id)
