@@ -1,4 +1,12 @@
-import { createElement, memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import {
+  createElement,
+  memo,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react'
 import clsx from 'clsx'
 import type {
   BlockContent,
@@ -111,7 +119,9 @@ const phrasingTextOf = (node: PhrasingContent): string => {
   return ''
 }
 
-type AnchorSpec = { text: string; isReturn?: boolean }
+/** 划线锚点：text 定位、isReturn 决定「返回到这里」高亮、
+ *  rootId 是该锚点对应追问分支的根用户消息 id（点下划线进追问用）。 */
+type AnchorSpec = { text: string; isReturn?: boolean; rootId?: string }
 
 const MarkdownPhrasingContent = memo(function MarkdownPhrasingContent({
   nodes,
@@ -122,7 +132,8 @@ const MarkdownPhrasingContent = memo(function MarkdownPhrasingContent({
    *  span——下划线只包选中的那撮文本；区间按所有节点纯文本拼接定位，
    *  跨过 strong/em/inlineCode 边界的锚点也能命中（第三轮：曾只认纯 text
    *  节点导致跨格式追问整条没有下划线）。多个锚点各自独立标记。
-   *  isReturn 的锚点（「返回到这里」）命中的片段再打 data-ask-return。 */
+   *  isReturn 的锚点（「返回到这里」）命中的片段再打 data-ask-return；
+   *  rootId 打到 data-ask-root，点下划线即进追问（与点引子卡同一路径）。 */
   anchors?: AnchorSpec[]
 }) {
   if (anchors && anchors.length > 0) {
@@ -132,11 +143,16 @@ const MarkdownPhrasingContent = memo(function MarkdownPhrasingContent({
         const start = joined.indexOf(a.text)
         return start < 0
           ? null
-          : { start, end: start + a.text.length, isReturn: !!a.isReturn }
+          : { start, end: start + a.text.length, isReturn: !!a.isReturn, rootId: a.rootId }
       })
-      .filter((x): x is { start: number; end: number; isReturn: boolean } => x !== null)
+      .filter(
+        (
+          x,
+        ): x is { start: number; end: number; isReturn: boolean; rootId: string | undefined } =>
+          x !== null,
+      )
     if (intervals.length > 0) {
-      type Part = { node: PhrasingContent; marked: boolean; isReturn: boolean }
+      type Part = { node: PhrasingContent; marked: boolean; isReturn: boolean; rootId?: string }
       const parts: Part[] = []
       let cursor = 0
       for (const node of nodes) {
@@ -167,12 +183,18 @@ const MarkdownPhrasingContent = memo(function MarkdownPhrasingContent({
               node: { ...node, value: node.value.slice(segStart, segEnd) },
               marked: segHits.length > 0,
               isReturn: segHits.some((iv) => iv.isReturn),
+              rootId: segHits.find((iv) => iv.rootId)?.rootId,
             })
           }
           continue
         }
         // 非 text 节点整体进命中区（跨格式锚点包最小节点集，绝不整条丢标记）
-        parts.push({ node, marked: true, isReturn: active.some((iv) => iv.isReturn) })
+        parts.push({
+          node,
+          marked: true,
+          isReturn: active.some((iv) => iv.isReturn),
+          rootId: active.find((iv) => iv.rootId)?.rootId,
+        })
       }
       return (
         <>
@@ -182,6 +204,7 @@ const MarkdownPhrasingContent = memo(function MarkdownPhrasingContent({
                 key={index}
                 data-ask-referenced
                 {...(part.isReturn ? { 'data-ask-return': true } : {})}
+                {...(part.rootId ? { 'data-ask-root': part.rootId } : {})}
               >
                 <MarkdownPhrasingContentItem node={part.node} />
               </span>
@@ -345,9 +368,12 @@ const MarkdownBlockContentOrDefinitionContent = memo(
           if (hits.length > 0) {
             pendingAsks = pendingAsks.filter((ask) => !hits.includes(ask))
             blockAsks = hits
+            // 同一 anchorText 可能被追问多次：下划线只画一次，点它进
+            // 最早那条分支的根（与引子卡排序一致，取 hits 里首个）。
             anchors2 = [...new Set(hits.map((ask) => ask.anchorText))].map((text2) => ({
               text: text2,
               isReturn: text2 === returnAnchorText,
+              rootId: hits.find((ask) => ask.anchorText === text2)?.rootId,
             }))
           }
         }
@@ -458,9 +484,32 @@ export const MarkdownAstRenderer = memo(function MarkdownAstRenderer({
     onUpdateRef.current()
   }, [ast.children])
 
+  // 点下划线进追问（真机反馈 2026-11-22）：与点引子卡同一路径（decisions/
+  // 2026-11-19 §二.5）。事件委托挂在渲染根——下划线 span 穿透在 blockquote/
+  // list/table 等多层递归里，逐层传 onClick 会把 props 面撕开一大片。
+  // 链接优先：命中 <a> 时交给链接自己（站内预览/浏览器），不误当追问入口。
+  const onAskOpenRef = useRef(onAskOpen)
+  onAskOpenRef.current = onAskOpen
+  const handleClick = useMemo(
+    () => (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const marked = target.closest('[data-ask-root]')
+      if (!marked) return
+      // 引子卡自带 onClick（与下划线同一目标），不重复触发
+      if (target.closest('[data-ask-card]')) return
+      // 下划线内部的链接优先走链接语义
+      if (target.closest('a')) return
+      const rootId = marked.getAttribute('data-ask-root')
+      if (!rootId) return
+      onAskOpenRef.current?.(rootId)
+    },
+    [],
+  )
+
   return useMemo(
     () => (
-      <div className={clsx('ds-markdown', className)}>
+      <div className={clsx('ds-markdown', className)} onClick={handleClick}>
         {/* 解析器在根节点下产出块级内容。 */}
         <MarkdownBlockContentOrDefinitionContent
           nodes={ast.children as Array<BlockContent | DefinitionContent>}
@@ -472,6 +521,6 @@ export const MarkdownAstRenderer = memo(function MarkdownAstRenderer({
         />
       </div>
     ),
-    [className, ast.children, loading, fragmentAsk, onAskOpen, returnAnchorText]
+    [className, ast.children, loading, fragmentAsk, onAskOpen, returnAnchorText, handleClick]
   )
 })
