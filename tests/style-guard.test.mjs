@@ -45,8 +45,12 @@ describe('样式红线：追问交互关键规则不落空', () => {
   it('片段引子卡 ds-ask-card 有卡片样式而非裸 button 默认', () => {
     expect(markdownCss).toContain('.ds-ask-card')
   })
-  it('lane 顶部「返回上一级」条有自己的样式（laneHeader）', () => {
-    expect(sessionCss).toContain('.laneHeader')
+  // 真机反馈 2026-11-22：桌面端「返回上一级」曾作为 lane 内独立浮动条
+  // （.laneHeader）在标题行下方另占空间。改为与手机端同构——进标题行，
+  // 用 .headerBack（两端共用同一个类）。旧类必须彻底消失，避免两套并存。
+  it('「返回上一级」用标题行内样式（headerBack），不再有 lane 内独立条', () => {
+    expect(sessionCss).toContain('.headerBack')
+    expect(sessionCss).not.toContain('.laneHeader')
   })
 })
 

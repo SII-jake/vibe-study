@@ -574,3 +574,48 @@ describe('第二轮真机反馈 ④：ask 挂载不进版本分组', () => {
     expect(container.textContent).not.toMatch(/\d\s*\/\s*2/)
   }, 20000)
 })
+
+// 真机反馈 2026-11-22：桌面端「返回上一级」曾渲染成 lane 内的独立浮动条
+// （.laneHeader：sticky 贴在滚动区顶部、height:0 悬在正文之上），于是它在标题行
+// 下方另占一块视觉空间。手机端早已改到标题行内（MobileHeader 的 start 槽位），
+// 桌面与手机在这一点上应当同构：同一条标题行，不另起一行。
+describe('桌面端「返回上一级」在标题行内', () => {
+  it('进嵌套层后按钮落在标题行容器里，且 lane 内没有独立顶栏', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 进嵌套层：卡进右栏 → 设为当前（q1 升入中栏，此时中栏离主线根）
+    const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
+    expect(card).toBeTruthy()
+    act(() => { card.click() })
+    const promoteBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('设为当前'))!
+    expect(promoteBtn).toBeTruthy()
+    act(() => { promoteBtn.click() })
+
+    // 效果：标题行同时含标题与返回按钮（同一行）
+    const header = container.querySelector('[data-session-header]')
+    expect(header).toBeTruthy()
+    expect(header!.textContent).toContain('嵌套')
+    const inHeader = [...header!.querySelectorAll('button')].filter((b) =>
+      b.textContent?.includes('返回上一级'),
+    )
+    expect(inHeader.length).toBe(1)
+
+    // 不变量：全页只有这一个返回按钮，且它不在任何 lane 内、lane 内也没有顶栏条
+    const all = [...container.querySelectorAll('button')].filter((b) =>
+      b.textContent?.includes('返回上一级'),
+    )
+    expect(all.length).toBe(1)
+    expect(all[0]!.closest('[data-lane]')).toBeNull()
+    expect(container.querySelector('[data-center-header]')).toBeNull()
+  }, 20000)
+
+  it('主线根层不渲染返回按钮（无父级可回）', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    expect(container.textContent).not.toContain('返回上一级')
+  }, 20000)
+})

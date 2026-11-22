@@ -262,29 +262,20 @@ export const SessionView = ({
   )
 
   // 单 lane 内容：以该 lane 根消息重根的可见链（追问的问答不占父 lane 正文，
-  // getVisibleMessages 已在挂载点截断）。中栏非主线根时顶栏带"返回上一级"。
+  // getVisibleMessages 已在挂载点截断）。「返回上一级」不在这里——它属于标题行
+  // （真机反馈 2026-11-22：曾作为 lane 内独立浮动条另占一块空间，与手机端不同构）。
   const renderConversationLane = (laneNodeId: string, side: 'main' | 'right') => {
     const laneSession = rootedConversation(session, laneNodeId)
     if (!laneSession) return null
-    const isCenter = laneNodeId === pane.centerNodeId
     return (
-      <>
-        {!isMobile && isCenter && centerPath.length > 1 ? (
-          <div className={styles.laneHeader} data-center-header>
-            <button type="button" onClick={goBack}>
-              返回上一级
-            </button>
-          </div>
-        ) : null}
-        <MessageList
-          session={laneSession}
-          streaming={streaming}
-          footer={laneFooter(laneNodeId)}
-          onChildOpen={(nodeId) => openChild(nodeId, side)}
-          returnAnchor={returnAnchor}
-          laneRootId={laneNodeId === sessionRootId ? undefined : laneNodeId}
-        />
-      </>
+      <MessageList
+        session={laneSession}
+        streaming={streaming}
+        footer={laneFooter(laneNodeId)}
+        onChildOpen={(nodeId) => openChild(nodeId, side)}
+        returnAnchor={returnAnchor}
+        laneRootId={laneNodeId === sessionRootId ? undefined : laneNodeId}
+      />
     )
   }
 
@@ -302,10 +293,18 @@ export const SessionView = ({
           }
         />
       ) : (
-        <div className={styles.header}>
+        <div className={styles.header} data-session-header>
           <div className={clsx(styles.title, siderCollapsed && styles.withCollapsedSider)}>
             {title}
           </div>
+          {/* 与手机端同构：中栏离主线根时，「返回上一级」进标题行与标题同行，
+              不再作为 lane 内一条独立浮动条另占空间。放标题右侧——左侧留给
+              侧栏收起后的两个按钮（.withCollapsedSider 的 113px 偏移）。 */}
+          {centerPath.length > 1 ? (
+            <button type="button" className={styles.headerBack} onClick={goBack}>
+              返回上一级
+            </button>
+          ) : null}
         </div>
       )}
       {desktopTrack || isMobile ? (
