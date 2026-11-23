@@ -78,16 +78,48 @@ export function createAppVersionHandler(distRoot) {
     // 老部署无此文件时回退壳版本（info 取不到就用 0.0.0 兜底），口径不双轨。
     const info = await readPublishedApk(distRoot)
     const serverVersion = await readServerVersion(distRoot, info?.versionName ?? '0.0.0')
+    const minVersionCode = await readUpdatePolicy(distRoot)
     if (!info) {
       // 纯前端发布（无新 APK）也要报服务端版本：它是与壳版本并列的第二口径，
       // 设置页据此让用户看见「服务在前进」，不能用 404 一体装死。
       response.writeHead(404, headers)
-      response.end(JSON.stringify({ error: 'no apk published', serverVersion }))
+      response.end(JSON.stringify({ error: 'no apk published', serverVersion, minVersionCode }))
       return
     }
     response.writeHead(200, headers)
-    response.end(JSON.stringify({ ...info, serverVersion }))
+    response.end(JSON.stringify({ ...info, serverVersion, minVersionCode }))
   }
+}
+
+/**
+ * 强制更新底线：dist/app/update-policy.json 的 minVersionCode。
+ * 版本纪律（AGENTS.md「APP 版本纪律」）：每版发布带一个是否强制更新的状态。
+ * 当前 versionCode 低于底线（不含相等）时该版不兼容当前服务端，必须装完才能
+ * 进入应用；达到底线但仍低于已发布版本的属可选更新，用户有空再装。
+ * 文件缺失、内容损坏或字段非法一律回退 0——策略文件坏掉只应退化成"全部可选"，
+ * 不能连带版本接口失效或把所有人拦在门外。
+ */
+export async function readUpdatePolicy(distRoot) {
+  try {
+    const parsed = JSON.parse(await readFile(join(distRoot, 'app', 'update-policy.json'), 'utf8'))
+    const minVersionCode = Number(parsed?.minVersionCode)
+    return Number.isInteger(minVersionCode) && minVersionCode > 0 ? minVersionCode : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * 发布时的抬底线算法（唯一一份，publish-apk.sh / release.sh 都问它）：
+ * - 可选发布（mandatory=false）：底线保持不动；
+ * - 强制发布：底线抬到本版 versionCode；
+ * - 两种情况都不回退——底线降回去等于允许老客户端连不兼容的服务端。
+ * 已有底线无法解析时按 0 处理（等价于从未设过底线）。
+ */
+export function nextMinVersionCode(current, versionName, mandatory) {
+  const floor = Number.isInteger(Number(current)) && Number(current) > 0 ? Number(current) : 0
+  if (!mandatory) return floor
+  return Math.max(floor, versionCodeOf(versionName))
 }
 
 /**

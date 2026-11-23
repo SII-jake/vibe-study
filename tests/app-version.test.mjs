@@ -9,7 +9,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createStaticHandler } from '../server/static.mjs'
-import { createAppVersionHandler, readPublishedApk } from '../server/app-version.mjs'
+import {
+  createAppVersionHandler,
+  nextMinVersionCode,
+  readPublishedApk,
+} from '../server/app-version.mjs'
 
 let parent
 let root
@@ -149,5 +153,67 @@ describe('APK 文件的静态分发（下载本身走 static）', () => {
     expect(response.headers.get('content-type')).toBe('application/vnd.android.package-archive')
     const bytes = Buffer.from(await response.arrayBuffer())
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(APK_SHA)
+  })
+})
+
+// 强制更新底线（dist/app/update-policy.json）：低于 minVersionCode 的客户端必须
+// 更新后才能进入应用；达到它但仍低于已发布版本的，属可选更新（用户有空再装）。
+// 底线只升不降——发布脚本取 max(已有底线, 本次是否为强制版的 versionCode)。
+describe('强制更新底线（dist/app/update-policy.json）', () => {
+  it('没有 policy 文件：minVersionCode 为 0，所有升级都走可选通道', async () => {
+    await rm(join(root, 'app', 'update-policy.json'), { force: true })
+    const { body } = await fetchVersion()
+    expect(body.minVersionCode).toBe(0)
+  })
+
+  it('policy 给出底线：响应带上该 versionCode', async () => {
+    await writeFile(
+      join(root, 'app', 'update-policy.json'),
+      JSON.stringify({ minVersionCode: 10015000, mandatory: true }),
+    )
+    const { body } = await fetchVersion()
+    expect(body.minVersionCode).toBe(10015000)
+    await rm(join(root, 'app', 'update-policy.json'), { force: true })
+  })
+
+  it('policy 内容损坏：回退 0，版本接口照常可用', async () => {
+    await writeFile(join(root, 'app', 'update-policy.json'), '{ 这不是 JSON')
+    const { status, body } = await fetchVersion()
+    expect(status).toBe(200)
+    expect(body.versionName).toBe('1.2.0')
+    expect(body.minVersionCode).toBe(0)
+    await rm(join(root, 'app', 'update-policy.json'), { force: true })
+  })
+
+  it('未发布 APK（404）也带 minVersionCode=0，壳读到缺省即不拦人', async () => {
+    await rm(join(root, 'app'), { recursive: true, force: true })
+    const response = await fetch(`${base}/api/app-version`)
+    const body = await response.json()
+    expect(response.status).toBe(404)
+    expect(body.minVersionCode).toBe(0)
+    await publishApk()
+  })
+})
+
+// 每版发布带一个「是否强制更新」状态。可选发布不动底线；强制发布把底线抬到
+// 本版 versionCode。底线只升不降——降回去等于允许老客户端连接不兼容的服务端。
+describe('nextMinVersionCode（发布时抬底线的唯一算法）', () => {
+  it('可选发布：底线保持不动', () => {
+    expect(nextMinVersionCode(10015000, '1.0.16', false)).toBe(10015000)
+    expect(nextMinVersionCode(0, '1.0.16', false)).toBe(0)
+  })
+
+  it('强制发布：底线抬到本版 versionCode', () => {
+    expect(nextMinVersionCode(0, '1.0.16', true)).toBe(10016000)
+    expect(nextMinVersionCode(10015000, '1.0.16', true)).toBe(10016000)
+  })
+
+  it('强制发布旧版本号：底线不回退', () => {
+    expect(nextMinVersionCode(10015000, '1.0.14', true)).toBe(10015000)
+  })
+
+  it('无法解析的已有底线按 0 处理', () => {
+    expect(nextMinVersionCode(undefined, '1.0.16', true)).toBe(10016000)
+    expect(nextMinVersionCode(Number.NaN, '1.0.16', false)).toBe(0)
   })
 })

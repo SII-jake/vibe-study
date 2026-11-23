@@ -2,6 +2,8 @@
 
 const VIBE_BOOT_STORAGE_KEY = 'vibe-study.server-url'
 const VIBE_BOOT_PASSWORD_KEY = 'vibe-study.password'
+/** 「以后再说」记住的可选更新版本名：同一个版本不再每次启动都弹。 */
+const VIBE_BOOT_DISMISSED_KEY = 'vibe-study.dismissed-update'
 const DEFAULT_SERVER = 'https://8.153.198.42:18003'
 /** 口令硬编码一份默认：自用单机库 default 即正确值；改服务器口令后在启动页里改本地值即可。 */
 const DEFAULT_PASSWORD = '3iE5K8IUaG5QaaqBXBT7jKRt'
@@ -51,11 +53,49 @@ function resolveBootBack(state) {
   return 'exit'
 }
 
+/** 该版本是否已被用户点过「以后再说」。 */
+function isUpdateDismissed(versionName) {
+  const dismissed = (window.localStorage.getItem(VIBE_BOOT_DISMISSED_KEY) ?? '').trim()
+  return dismissed !== '' && dismissed === (versionName ?? '').trim()
+}
+
+function dismissUpdate(versionName) {
+  const name = (versionName ?? '').trim()
+  if (name === '') window.localStorage.removeItem(VIBE_BOOT_DISMISSED_KEY)
+  else window.localStorage.setItem(VIBE_BOOT_DISMISSED_KEY, name)
+}
+
+/**
+ * 拉起下载安装（强制更新与用户点「现在更新」共用这一条链路）。
+ * 缺安装权限先引导去系统设置；原生拒绝时回 download-failed 由启动页放行。
+ */
+function installUpdate(server, update) {
+  const bridge = window.VibeAppUpdate
+  if (!bridge || typeof bridge.downloadAndInstall !== 'function') {
+    return { status: 'download-failed', versionName: update?.versionName ?? '' }
+  }
+  const versionName = update?.versionName ?? ''
+  if (typeof bridge.hasUpdatePermission === 'function' && !bridge.hasUpdatePermission()) {
+    // 权限引导：打开本应用「安装未知来源」系统设置；用户开完回来自动再检查
+    bridge.openUpdatePermissionSettings()
+    return { status: 'need-permission', versionName }
+  }
+  const accepted = bridge.downloadAndInstall(`${server}/app/${update.apkName}`, update.sha256 ?? '')
+  if (!accepted) return { status: 'download-failed', versionName }
+  // 桥异步下载（进程内，自签证书由壳钉证）：失败时壳发 vibe-ota-failed 事件，
+  // 启动页据此把"下载中"改成失败提示并放行进入应用——不再傻等不弹的安装界面。
+  return { status: 'downloading', versionName }
+}
+
 /**
  * 壳内检查更新：问服务器发布了哪个 APK，与原生桥给的当前版本号比对。
  * 状态机：no-bridge（纯浏览器） / skipped（服务器没发布或不可达，静默放行）
- * / up-to-date / need-permission（有新版、缺安装权限） / downloading（已拉起下载）。
- * 壳只在 downloading 与 need-permission 两态拦下进入应用，其余一律放行。
+ * / up-to-date / optional（有新版但不强制，等用户有空再装）
+ * / need-permission、downloading、download-failed（已进入安装流程）。
+ *
+ * 强制与否只由服务端的 minVersionCode 决定（版本纪律：每版发布带一个是否强制
+ * 更新的状态）。当前版本低于它是跨了不兼容改动，必须装完才能进入应用；达到
+ * 它则一律可选更新，不再像从前那样发现新版就强制下载。
  */
 async function checkAppUpdate(server) {
   const bridge = window.VibeAppUpdate
@@ -79,18 +119,20 @@ async function checkAppUpdate(server) {
   if (remoteCode <= current) return { status: 'up-to-date', current }
 
   const versionName = published.versionName ?? ''
-  if (typeof bridge.hasUpdatePermission === 'function' && !bridge.hasUpdatePermission()) {
-    // 权限引导：打开本应用「安装未知来源」系统设置；用户开完回来自动再检查
-    bridge.openUpdatePermissionSettings()
-    return { status: 'need-permission', versionName }
+  const update = {
+    versionName,
+    apkName: published.apkName,
+    sha256: published.sha256 ?? '',
   }
-
-  const url = `${server}/app/${published.apkName}`
-  const accepted = bridge.downloadAndInstall(url, published.sha256 ?? '')
-  if (!accepted) return { status: 'download-failed', versionName }
-  // 桥异步下载（进程内，自签证书由壳钉证）：失败时壳发 vibe-ota-failed 事件，
-  // 启动页据此把"下载中"改成失败提示并放行进入应用——不再傻等不弹的安装界面。
-  return { status: 'downloading', versionName }
+  const minVersionCode = Number(published?.minVersionCode)
+  const mandatory =
+    Number.isInteger(minVersionCode) && minVersionCode > 0 && current < minVersionCode
+  if (mandatory) {
+    return { ...installUpdate(server, update), mandatory: true }
+  }
+  // 可选更新：不自己下载，由启动页给出「现在更新 / 以后再说」；点过以后再说
+  // 的同一版本不再提示（换版本才重新提示）。
+  return { status: 'optional', ...update, mandatory: false, dismissed: isUpdateDismissed(versionName) }
 }
 
 function loadPassword() {
@@ -115,6 +157,9 @@ window.VibeBoot = {
   saveServer,
   resolveBootBack,
   checkAppUpdate,
+  installUpdate,
+  isUpdateDismissed,
+  dismissUpdate,
   loadPassword,
   savePassword,
 

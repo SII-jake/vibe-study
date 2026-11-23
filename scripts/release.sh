@@ -35,7 +35,9 @@ step "2/6 前端构建（tsc --noEmit + vite build → dist/）"
 (cd "$REPO_ROOT" && npm run build)
 [ -f "$REPO_ROOT/dist/index.html" ] || die "构建成功但 dist/index.html 缺失"
 
-step "3/6 打包 release APK（复用 publish-apk.sh：构建→验签→落 dist/app/）"
+step "3/6 打包 release APK（复用 publish-apk.sh：构建→验签→落 dist/app/→登记强制/可选）"
+# MANDATORY_UPDATE=1 表示本版带不兼容改动，低于它的老壳必须更新后才能进入应用；
+# 不带该变量即普通可选发布，发现新版只提示、不再强制下载。
 bash "$SCRIPT_DIR/publish-apk.sh"
 
 step "4/6 校验产物就位"
@@ -105,6 +107,8 @@ NEW_PID="$(find_server_pid || true)"
 echo "新后端 PID=$NEW_PID（日志 $SERVER_LOG）"
 
 step "6/6 健康检查（最多等 15s）"
+# 本次发布登记的强制底线（publish-apk.sh 刚写下）：壳读到的必须就是它
+EXPECT_MIN="$(node -e "const f='$REPO_ROOT/dist/app/update-policy.json';try{console.log(JSON.parse(require('fs').readFileSync(f,'utf8')).minVersionCode||0)}catch{console.log(0)}")"
 healthy=""
 for _ in $(seq 1 30); do
   body="$(curl -sf --max-time 2 "http://${LISTEN_HOST}:${LISTEN_PORT}/api/app-version" 2>/dev/null || true)"
@@ -113,9 +117,12 @@ for _ in $(seq 1 30); do
     served="$(printf '%s' "$body" | rg -o '"versionName":"[^"]+"' | head -1 | cut -d'"' -f4)"
       # 服务端版本（发布脚本本次自增）也必须在响应里，否则新前端拿不到第二口径
       served_sv="$(printf '%s' "$body" | rg -o '"serverVersion":"[^"]+"' | head -1 | cut -d'"' -f4)"
-      if [ "$served" = "$VERSION_NAME" ] && [ "$served_sv" = "$SERVER_VERSION" ]; then
+      # 强制更新底线：与发布时写下的策略文件对拍（可选发布保持既有底线，
+      # 强制发布抬到本版；均只升不降），确保壳读到的就是本次登记的底线
+      served_min="$(printf '%s' "$body" | rg -o '"minVersionCode":[0-9]+' | head -1 | cut -d: -f2)"
+      if [ "$served" = "$VERSION_NAME" ] && [ "$served_sv" = "$SERVER_VERSION" ] && [ "$served_min" = "$EXPECT_MIN" ]; then
       healthy="1"
-        echo "后端健康：/api/app-version 返回 versionName=$served、serverVersion=$served_sv"
+        echo "后端健康：/api/app-version 返回 versionName=$served、serverVersion=$served_sv、minVersionCode=$served_min"
       break
     fi
   fi
@@ -130,3 +137,6 @@ curl -sf -o /dev/null "http://${LISTEN_HOST}:${LISTEN_PORT}/" || die "静态首�
 echo "静态首页可达。"
 
 printf '\n\033[1;32m发布完成：应用版本 %s｜服务端版本 %s（后端 PID=%s）\033[0m\n' "$VERSION_NAME" "$SERVER_VERSION" "$NEW_PID"
+printf '更新策略：%s（dist/app/update-policy.json: %s）\n' \
+  "$([ "${MANDATORY_UPDATE:-0}" = "1" ] && echo 强制更新 || echo 可选更新)" \
+  "$(tr -d '\n' < "$REPO_ROOT/dist/app/update-policy.json")"

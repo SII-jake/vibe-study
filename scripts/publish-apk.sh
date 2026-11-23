@@ -11,7 +11,7 @@ ENV_FILE="$REPO_ROOT/android-toolchain.env"
 
 step() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 
-step "0/3 环境前置检查"
+step "0/4 环境前置检查"
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
@@ -24,7 +24,7 @@ if [ ! -f "$REPO_ROOT/android/keystore.properties" ]; then
   exit 1
 fi
 
-step "1/3 同步壳内资产 + 构建 release APK（Gradle 自行解析 keystore.properties）"
+step "1/4 同步壳内资产 + 构建 release APK（Gradle 自行解析 keystore.properties）"
 # android-shell/ 并不会自己进 APK——npx cap sync 才把它拷到
 # app/src/main/assets/public/（该目录 gitignored）。少了这步，启动页/boot.js
 # 改动打了包也不会生效（手机上曾因此拿不到 datalist 下拉，实测踩坑）。
@@ -41,7 +41,7 @@ if [ -z "$APK" ]; then
 fi
 echo "产物：$APK"
 
-step "1.5/3 校验 APK 真实 versionCode 与 versionName 派生一致"
+step "1.5/4 校验 APK 真实 versionCode 与 versionName 派生一致"
 # 1.0.8→1.0.13 事故：build.gradle 的 semParts 硬编码 "1.0.7"，逐版 bump 只动了
 # versionName，每个包真实 versionCode 都是 10007000——服务器按文件名发 100xx000，
 # 桥读到手机 10007000 永远"小于"，用户装多少遍新版都再被提示更新。
@@ -60,7 +60,7 @@ if [ -n "$AAPT2_BIN" ]; then
   echo "versionCode 对账通过：$actual_code"
 fi
 
-step "2/3 校验包名与签名一致（签名变了旧机无法覆盖升级）"
+step "2/4 校验包名与签名一致（签名变了旧机无法覆盖升级）"
 # 与 dist/app/ 里正在分发的旧包比对证书指纹；首次发布（无旧包）跳过
 CURRENT_CERT=""
 for tool in apksigner; do
@@ -83,7 +83,7 @@ if [ -n "$CURRENT_CERT" ]; then
   fi
 fi
 
-step "3/3 落到 dist/app/（同目录只保留最新一份，服务端扫描即取它）"
+step "3/4 写到 dist/app/ 并登记本次是否强制更新"
 mkdir -p "$REPO_ROOT/dist/app"
 find "$REPO_ROOT/dist/app" -maxdepth 1 -name '*.apk' -delete
 cp "$APK" "$REPO_ROOT/dist/app/$(basename "$APK")"
@@ -91,3 +91,12 @@ SHA=$(sha256sum "$REPO_ROOT/dist/app/$(basename "$APK")" | awk '{print $1}')
 echo "已发布：dist/app/$(basename "$APK")"
 echo "SHA-256：$SHA"
 echo "shell 无需另建 version.json —— /api/app-version 会实时读取该文件并给出上述哈希。"
+
+step "4/4 更新策略：强制 or 可选（MANDATORY_UPDATE=1 才是强制）"
+# 每版发布带一个是否强制更新的状态：默认可选（发现新版只提示，用户有空再装）；
+# 只有当这版带不兼容改动、老壳连不上当前服务端时才 `MANDATORY_UPDATE=1 bash scripts/publish-apk.sh`。
+# 底线只升不降，算法唯一写在 server/app-version.mjs 的 nextMinVersionCode。
+VN="$(basename "$APK" | sed -E 's/.+-([0-9]+\.[0-9]+(\.[0-9]+)*)-(release|debug)\.apk/\1/')"
+POLICY_ARGS=()
+if [ "${MANDATORY_UPDATE:-0}" = "1" ]; then POLICY_ARGS+=(--mandatory); fi
+node "$REPO_ROOT/scripts/write-update-policy.mjs" "$VN" "${POLICY_ARGS[@]}"

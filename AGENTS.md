@@ -29,6 +29,7 @@ test -d node_modules && echo ok      # 环境就绪检查：依赖已安装（np
 - 有原生改动（`android/` 下 Java/Manifest/gradle）必须 bump；纯前端/sites 改动不用。
 - **双版本号**：壳版本（上条）之外还有服务端版本 `<壳版本>.<发布序号>`（如 1.0.2.7），由 `release.sh` 每次发布自增 `dist/app/.release-seq` 并写 `dist/server-version.json`；`/api/app-version` 以 `serverVersion` 字段下发（200/404 都带，缺文件回退壳版本）。设置页双行展示，纯前端发布用户也能看到服务在前进。壳版本 bump 后序号自然从 1 重计。
 - bump 后跑 `bash scripts/publish-apk.sh` 构建并发布到 `dist/app/`；服务器部署会带上这个目录，壳内检查更新自然生效。签名用 `android/app/keystore/` 的 release keystore（本地持有、不进 git、同一指纹贯穿所有版本）。
+- **更新是否强制由发布时登记**：默认是**可选更新**（发现新版只在启动页提示「现在更新 / 以后再说」）；只有该版带与服务端不兼容的改动、老壳连不上时才用 `MANDATORY_UPDATE=1 bash scripts/release.sh` 发布，此时低于本版的客户端被拦下必须更新。底线写在 `dist/app/update-policy.json`，算法唯一在 `server/app-version.mjs` 的 `nextMinVersionCode`，**只升不降**。取舍见 `docs/decisions/2026-11-23-optional-app-update.md`。
 - **一键发布入口：`bash scripts/release.sh`**——人说"发布"就跑它：质量门（单测）→ 前端构建 → 打包 APK（复用 publish-apk.sh）→ 校验产物并自增服务端版本 → 精确重启后端（127.0.0.1:8787，只杀 cwd 与命令行都匹配本仓库的那个进程，不匹配拒绝动手）→ 健康检查（`/api/app-version` 须回 build.gradle 的 versionName 与本次 serverVersion 双对拍）。该脚本不自动 bump versionName；bump 由人先改好再发布。
 
 ## 常用命令

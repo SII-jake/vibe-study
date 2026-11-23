@@ -184,7 +184,9 @@ describe('checkAppUpdate 版本比较（已装最新壳不重复提示）', () =
     expect(calls).toEqual([])
   })
 
-  it('桥版本旧 → downloading（发起下载）', async () => {
+  // 2026-11-23 改口径：桥版本旧不再一律强制下载。服务端没给强制底线（老部署）时
+  // 属可选更新，只在启动页提示，等用户点「现在更新」才下载。
+  it('桥版本旧且无强制底线 → optional，不发起下载', async () => {
     const calls = []
     window.VibeAppUpdate = {
       getVersionCode: () => 10011000,
@@ -194,7 +196,33 @@ describe('checkAppUpdate 版本比较（已装最新壳不重复提示）', () =
     }
     window.fetch = async () => published()
     const state = await window.VibeBoot.checkAppUpdate('https://8.153.198.42:18003')
+    expect(state.status).toBe('optional')
+    expect(state.mandatory).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('桥版本旧且跨过强制底线 → downloading（强制下载）', async () => {
+    const calls = []
+    window.VibeAppUpdate = {
+      getVersionCode: () => 10011000,
+      getVersionName: () => '1.0.11',
+      hasUpdatePermission: () => true,
+      downloadAndInstall: (url, sha) => { calls.push([url, sha]); return true },
+    }
+    window.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        versionName: '1.0.12',
+        versionCode: 10012000,
+        apkName: 'vibe-study-1.0.12-release.apk',
+        sha256: 'c780eec35058f633893e379dcc85e61e28aa469fbfa49b95be568bb08c0d6a33',
+        minVersionCode: 10012000,
+      }),
+    })
+    const state = await window.VibeBoot.checkAppUpdate('https://8.153.198.42:18003')
     expect(state.status).toBe('downloading')
+    expect(state.mandatory).toBe(true)
     expect(calls).toEqual([
       ['https://8.153.198.42:18003/app/vibe-study-1.0.12-release.apk',
        'c780eec35058f633893e379dcc85e61e28aa469fbfa49b95be568bb08c0d6a33'],

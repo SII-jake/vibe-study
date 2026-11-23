@@ -80,6 +80,10 @@
       <button class="ghost" id="editBtn">修改服务器地址</button>
       <p class="hint" id="autoHint">倒计时 <span id="countdown">2</span> 秒后自动进入，点「修改服务器地址」取消。</p>
       <p class="hint" id="otaHint" role="status" style="display: none"></p>
+      <div id="otaActions" style="display: none">
+        <button id="otaInstallBtn">现在更新</button>
+        <button class="ghost" id="otaLaterBtn">以后再说</button>
+      </div>
     </div>
 
     <div class="card" id="editArea">
@@ -108,37 +112,76 @@
         byId('autoHint').style.display = 'none'
       }
 
-      /** 手动点「进入 / 保存并进入」或倒计时走完：先检查更新再决定是否放行。 */
-      function enterWithUpdateCheck(server) {
-        cancelAuto()
-        window.VibeBoot.checkAppUpdate(server).then(function (state) {
-          if (state.status === 'downloading') {
-            byId('otaHint').textContent = state.versionName
-              ? '发现新版本 ' + state.versionName + '，更新包下载中，完成后请在弹出的安装界面点「安装」。'
-              : '更新包下载中，完成后请在弹出的安装界面点「安装」。'
-            byId('otaHint').style.display = 'block'
-            // 真机反馈：下载失败（如自签证书/断网）时壳发事件——换上失败提示并自动放行，
-            // 应用照样能进，不再被"下载中"假象卡住。
-            document.addEventListener('vibe-ota-failed', function onFailed(event) {
-              document.removeEventListener('vibe-ota-failed', onFailed)
-              byId('otaHint').textContent = '更新包下载失败（' + (event.detail && event.detail.reason ? event.detail.reason : '网络异常') + '），已进入应用，下次启动时重试。'
-              window.setTimeout(function () {
-                window.VibeBoot.enterApp(server)
-              }, 1200)
-            })
-            return
-          }
-          if (state.status === 'need-permission') {
-            byId('otaHint').textContent = '发现新版本 ' + state.versionName + '，请在系统设置里允许本应用安装未知来源包后重开应用。'
-            byId('otaHint').style.display = 'block'
-            return
-          }
-          if (state.status === 'download-failed') {
-            byId('otaHint').textContent = '发现新版本 ' + (state.versionName || '') + '，但无法开始下载，已进入应用，下次启动时重试。'
-            byId('otaHint').style.display = 'block'
+      /* 可选更新的暂存状态：用户在启动页决定「现在更新」时交给 installUpdate。
+         不用全局变量承载下载本身，桥在进程内异步下载。 */
+      var pendingOptional = null
+      var optionalTimer = null
+
+      function clearOptional() {
+        pendingOptional = null
+        if (optionalTimer !== null) {
+          window.clearTimeout(optionalTimer)
+          optionalTimer = null
+        }
+        byId('otaActions').style.display = 'none'
+      }
+
+      /** 进入安装流程后的三种结果：下载中 / 缺安装权限 / 无法开始下载。 */
+      function handleInstallState(server, state) {
+        if (state.status === 'downloading') {
+          byId('otaHint').textContent = state.versionName
+            ? '发现新版本 ' + state.versionName + '，更新包下载中，完成后请在弹出的安装界面点「安装」。'
+            : '更新包下载中，完成后请在弹出的安装界面点「安装」。'
+          byId('otaHint').style.display = 'block'
+          // 真机反馈：下载失败（如自签证书/断网）时壳发事件——换上失败提示并自动放行，
+          // 应用照样能进，不再被"下载中"假象卡住。
+          document.addEventListener('vibe-ota-failed', function onFailed(event) {
+            document.removeEventListener('vibe-ota-failed', onFailed)
+            byId('otaHint').textContent = '更新包下载失败（' + (event.detail && event.detail.reason ? event.detail.reason : '网络异常') + '），已进入应用，下次启动时重试。'
             window.setTimeout(function () {
               window.VibeBoot.enterApp(server)
             }, 1200)
+          })
+          return
+        }
+        if (state.status === 'need-permission') {
+          byId('otaHint').textContent = '发现新版本 ' + state.versionName + '，请在系统设置里允许本应用安装未知来源包后重开应用。'
+          byId('otaHint').style.display = 'block'
+          return
+        }
+        byId('otaHint').textContent = '发现新版本 ' + (state.versionName || '') + '，但无法开始下载，已进入应用，下次启动时重试。'
+        byId('otaHint').style.display = 'block'
+        window.setTimeout(function () {
+          window.VibeBoot.enterApp(server)
+        }, 1200)
+      }
+
+      /**
+       * 手动点「进入 / 保存并进入」或倒计时走完：先检查更新再决定是否放行。
+       * 强制更新（跨过服务端底线）直接进安装流程并拦下进入；可选更新只提示，
+       * 用户点「以后再说」即记住该版本、下次不再问，点「现在更新」才下载。
+       */
+      function enterWithUpdateCheck(server) {
+        cancelAuto()
+        window.VibeBoot.checkAppUpdate(server).then(function (state) {
+          if (state.status === 'optional') {
+            if (state.dismissed) {
+              window.VibeBoot.enterApp(server)
+              return
+            }
+            pendingOptional = state
+            byId('otaHint').textContent = '发现新版本 ' + state.versionName + '，现在更新还是稍后再说？'
+            byId('otaHint').style.display = 'block'
+            byId('otaActions').style.display = 'block'
+            // 不拦人：放着不管 5 秒后照常进入，下次启动再提示
+            optionalTimer = window.setTimeout(function () {
+              clearOptional()
+              window.VibeBoot.enterApp(server)
+            }, 5000)
+            return
+          }
+          if (state.status === 'downloading' || state.status === 'need-permission' || state.status === 'download-failed') {
+            handleInstallState(server, state)
             return
           }
           window.VibeBoot.enterApp(server)
@@ -150,6 +193,7 @@
         byId('enterArea').style.display = 'block'
         byId('editArea').style.display = 'none'
         byId('otaHint').style.display = 'none'
+        clearOptional()
 
         var left = 2
         byId('countdown').textContent = String(left)
@@ -181,15 +225,7 @@
             autoCounting: autoTimer !== null,
           })
           if (action === 'cancel-edit') {
-            window.addEventListener('focus', function () {
-        // 从「安装未知应用」系统设置回到启动页：权限一开即自动复查，
-        // 本次检查到新版会直接拉起下载，不再等重启
-        if (byId('otaHint').style.display === 'block' && autoTimer === null) {
-          enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
-        }
-      })
-
-      showEnter(window.VibeBoot.loadSavedServer())
+            showEnter(window.VibeBoot.loadSavedServer())
             return
           }
           if (action === 'cancel-countdown') {
@@ -202,6 +238,21 @@
 
       byId('enterBtn').addEventListener('click', function () {
         enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
+      })
+
+      byId('otaInstallBtn').addEventListener('click', function () {
+        if (!pendingOptional) return
+        var server = window.VibeBoot.loadSavedServer()
+        var state = pendingOptional
+        clearOptional()
+        handleInstallState(server, window.VibeBoot.installUpdate(server, state))
+      })
+
+      byId('otaLaterBtn').addEventListener('click', function () {
+        // 记住这个版本：同一版本的后续启动不再询问，出现更新的版本才重新提示
+        if (pendingOptional) window.VibeBoot.dismissUpdate(pendingOptional.versionName)
+        clearOptional()
+        window.VibeBoot.enterApp(window.VibeBoot.loadSavedServer())
       })
 
       document.querySelectorAll('#serverPresets .preset').forEach(function (btn) {
@@ -239,6 +290,8 @@
          本次检查到新版会直接拉起下载，不再等重启。监听必须挂在顶层——
          离开和回来都不必然经过返回键，挂进 backButton 处理器里可能永远不触发。 */
       window.addEventListener('focus', function () {
+        // 可选提示正在等用户选择：不复查，否则每次回焦都重置「以后再说」的倒计时
+        if (pendingOptional !== null) return
         if (byId('otaHint').style.display === 'block' && autoTimer === null) {
           enterWithUpdateCheck(window.VibeBoot.loadSavedServer())
         }
