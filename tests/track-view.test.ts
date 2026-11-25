@@ -29,6 +29,24 @@ describe('computeTrack（桌面 lane 序列）', () => {
       { nodeId: null, relation: 'draft' },
     ])
   })
+
+  // decisions/2026-11-19 §二.3 planAsk 中栏选文：「两栏不动，右栏切起草态」。
+  // pane 状态不动（rightNodeId 保留，取消时回位），但右栏的视觉形态是起草位——
+  // 否则旧子对话格仍占着右栏，起草框无处渲染、追问无法输入。
+  it('起草中：右栏无论有没有子对话，末格都是起草位', () => {
+    const lanes = computeTrack(['root'], 'child-1', true)
+    expect(lanes).toEqual([
+      { nodeId: 'root', relation: 'root' },
+      { nodeId: null, relation: 'draft' },
+    ])
+  })
+
+  it('不起草时右栏仍是子对话位（起草态只在起草期间生效）', () => {
+    expect(computeTrack(['root'], 'child-1', false)).toEqual([
+      { nodeId: 'root', relation: 'root' },
+      { nodeId: 'child-1', relation: 'child' },
+    ])
+  })
 })
 
 describe('routeTrack（手机 lane 序列，只放路由链）', () => {

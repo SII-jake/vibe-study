@@ -828,3 +828,131 @@ describe('追问树入口与跳转（桌面端）', () => {
     expect(container.querySelectorAll('[data-lane]').length).toBe(3)
   }, 20000)
 })
+
+// 用户 2026-11-25 报的网页版 bug：右栏开着子对话时，在中栏选一段文字追问，
+// 右栏不让位、挡住起草框，追问根本没法输入。
+// 规格 §二.3 planAsk 中栏选文「两栏不动，右栏切起草态」——状态不动（rightNodeId
+// 保留），右栏的视觉形态切换为起草位；取消起草后原子对话回位。
+// 断线点：computeTrack 只看 pane.rightNodeId，右栏非空就铺子对话格，
+// relation==='draft' 分支进不去，AskPane 无处渲染。
+describe('右栏开着时中栏选文追问：右栏让位给起草位', () => {
+  const selectInMainPane = async () => {
+    const mainFrag = [...container.querySelectorAll('[data-fragment-index]')].find(
+      (f) => !f.closest('[data-right-pane]'),
+    )
+    if (!mainFrag) throw new Error('中栏片段宿主缺失')
+    const range = document.createRange()
+    range.selectNodeContents(mainFrag)
+    const sel = window.getSelection()!
+    sel.removeAllRanges()
+    sel.addRange(range)
+    act(() => { document.dispatchEvent(new Event('selectionchange')) })
+    // 操作条 350ms 防抖（拖选中途不闪遮罩）
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)) })
+    // 精确匹配操作条按钮——标题行的「追问树」入口也含「追问」二字，包含匹配会误点
+    const askBtn = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '追问',
+    )
+    if (!askBtn) throw new Error('追问操作条未出现')
+    act(() => { (askBtn as HTMLButtonElement).click() })
+  }
+
+  it('起草位在右栏出现（不被旧子对话挡住），取消后原子对话回位', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 点卡进右栏：q1 子对话占右栏，中栏仍是主线正文
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    expect(container.querySelector('[data-right-pane]')).toBeTruthy()
+    expect(container.textContent).toContain('子答一。')
+
+    await selectInMainPane()
+
+    // 效果：起草位可见可输入
+    expect(container.textContent).toContain('就这段提问')
+    expect(
+      container.querySelector('textarea[placeholder="针对这一段，你想问什么？"]'),
+    ).toBeTruthy()
+    // 不变量：旧子对话不再占着右栏（否则它会盖在起草框上）
+    expect(container.querySelector('[data-right-pane]')).toBeNull()
+    expect(container.textContent).not.toContain('子答一。')
+
+    // 取消起草：右栏的原子对话回位（pane.rightNodeId 全程未动）
+    const cancel = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '取消',
+    )!
+    act(() => { cancel.click() })
+    expect(container.querySelector('[data-right-pane]')).toBeTruthy()
+    expect(container.textContent).toContain('子答一。')
+    expect(container.textContent).not.toContain('就这段提问')
+  }, 20000)
+
+  // 起草期间右栏的子对话已被起草位顶掉，它此刻不在眼前——标题行不能还留着
+  // 指向它的「设为当前 / ✕」：点了会把一块看不见的对话升进中栏，用户无从理解。
+  it('起草期间标题行不出现指向隐藏子对话的「设为当前 / ✕」', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    // 进右栏时控件在
+    expect(container.querySelector('[data-right-controls]')).toBeTruthy()
+
+    await selectInMainPane()
+
+    // 起草中：控件随右栏子对话一起让位
+    expect(container.querySelector('[data-right-controls]')).toBeNull()
+    expect(
+      [...container.querySelectorAll('button')].some((b) => b.textContent?.includes('设为当前')),
+    ).toBe(false)
+
+    // 取消起草：控件随子对话一起回位
+    const cancel = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '取消',
+    )!
+    act(() => { cancel.click() })
+    expect(container.querySelector('[data-right-controls]')).toBeTruthy()
+  }, 20000)
+
+  it('从该起草位提交：新子对话进右栏，旧子对话沉入中栏（连续下潜不丢）', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    await selectInMainPane()
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="针对这一段，你想问什么？"]',
+    )!
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!
+      setter.call(textarea, '中栏选文的追问')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+    await rerenderWithFreshSession(session.id)
+
+    // 新追问落右栏，起草位让出
+    expect(container.textContent).not.toContain('就这段提问')
+    expect(container.querySelector('[data-right-pane]')).toBeTruthy()
+    // 不变量：旧子对话没有被删除，只是退回它在父层的引子卡（planPlaceChild
+    // 'main'：中栏不动、子对话进右栏），随时可再点开
+    expect(container.textContent).not.toContain('子答一。')
+    expect(container.querySelectorAll('[data-ask-card]').length).toBeGreaterThanOrEqual(1)
+  }, 20000)
+})
