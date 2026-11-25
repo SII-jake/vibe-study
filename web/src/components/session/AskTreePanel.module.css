@@ -1,0 +1,156 @@
+/* 追问树面板（decisions/2026-11-25-ask-tree-navigator.md §三）。
+ * 复用 base/Modal 的遮罩 + 居中卡片（Esc / 点遮罩关闭、叠放只关最上层），
+ * 这里只管宽度与树行。token 全部来自 theme.css，未定义的 var() 会让整条
+ * 声明失效——style-guard 守护这条闭环。 */
+.panel {
+  /* Modal 默认 380px 的对话框宽度；树行有缩进与来源片段，给宽一些更好读 */
+  width: 560px;
+  max-height: min(640px, calc(100vh - 64px));
+  box-sizing: border-box;
+}
+
+.main {
+  /* 树可能很长：滚动发生在内容区，标题行与底部操作条保持可见 */
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--dsw-alias-interactive-bg-hover);
+    }
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--dsw-alias-brand-primary);
+  }
+}
+
+/* 当前所在位置：整行淡底 + 左侧色条，避免只靠文字标记认位置 */
+.row[data-current='true'] {
+  background-color: var(--dsw-alias-interactive-bg-hover);
+  box-shadow: inset 2px 0 0 0 var(--dsw-alias-brand-primary);
+}
+
+/* 沉底追问（挂载点已不在可见链上）：弱化但不隐藏，入口必须留着 */
+.row[data-orphan='true'] .title {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.toggle,
+.toggleSpacer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 22px;
+}
+
+.toggle {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.currentMark,
+.orphanMark {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-brand-primary);
+  background-color: var(--dsw-alias-bg-layer-2);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
+}
+
+.orphanMark {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 来源片段：辨认"问的是哪一段"，单行截断 */
+.anchor {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 0 4px;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.footer {
+  display: flex;
+  gap: 8px;
+}
+
+.footerButton {
+  padding: 0 10px;
+  min-height: 28px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--dsw-alias-interactive-bg-hover);
+    }
+  }
+}
+
+/* 窄屏（手机）：卡片铺满可用宽度，树行缩进按 16px/层仍然放得下 */
+@media (max-width: 767px) {
+  .panel {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 96px);
+  }
+}

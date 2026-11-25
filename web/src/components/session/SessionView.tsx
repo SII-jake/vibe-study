@@ -1,10 +1,11 @@
 import clsx from 'clsx'
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
 import {
   planAsk,
   planGoBack,
+  planJumpTo,
   planPlaceChild,
   planPromote,
   type PaneView,
@@ -23,8 +24,12 @@ import { setPaneRatio, useSettings } from '../../services/settings.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
 import { MessageList } from '../messages/MessageList.js'
 import { AskActionBar } from '../messages/AskActionBar.js'
+import { buildAskTree, hasAskBranches } from '../messages/askTree.js'
+import { IconAskTreeOutline20, IconBackOutline20 } from '../base/icons.js'
+import { IconButton } from '../base/IconButton.js'
 import { AskPane } from './AskPane.js'
 import { AskSheet } from './AskSheet.js'
+import { AskTreePanel } from './AskTreePanel.js'
 import { installContextMenuGuard } from './contextMenuGuard.js'
 import { MobileHeader } from './MobileHeader.js'
 import { readAskSelection, type AskSelection } from './readAskSelection.js'
@@ -52,6 +57,12 @@ export const SessionView = ({
   const [asking, setAsking] = useState(false)
   const askingRef = useRef(false)
   askingRef.current = asking
+  // 追问树面板（decisions/2026-11-25-ask-tree-navigator.md）：追问一多只能沿
+  // 引子卡逐层进出，找不回之前的分支；面板摊开整棵树、标出当前位置、点即跳转。
+  const [askTreeOpen, setAskTreeOpen] = useState(false)
+  // 返回键分层要同步读"面板是否开着"，事件回调闭包里拿不到最新 state
+  const askTreeOpenRef = useRef(false)
+  askTreeOpenRef.current = askTreeOpen
   // 双栏视口状态（decisions/2026-11-19 §二.3）：centerNodeId 恒为会话主线根
   // centerNodeId 是 lane 链的当前中栏节点；祖先链与右栏由四条 pane 规则唯一驱动。
   // rightNodeId 由四条 pane 规则唯一驱动——起草占位、子对话位、promote/goBack。
@@ -72,11 +83,20 @@ export const SessionView = ({
   // 追问的 ask.title，未生成时回退提问本体，主线根层即会话标题。
   const headerTitle = laneTitle(session, pane.centerNodeId, title)
   const rightTitle = laneTitle(session, pane.rightNodeId, title)
+  // 追问树按需派生（面板用来浏览与跳转）；流式期间正文每次更新都重建代价高，
+  // 故只在面板打开时才计算，且随 session 变化重算。
+  const askTree = useMemo(
+    () => (askTreeOpen ? buildAskTree(session, title) : null),
+    [askTreeOpen, session, title],
+  )
+  // 入口判据比建树便宜得多：有任意一条追问分支才显示「追问树」
+  const hasAsks = useMemo(() => hasAskBranches(session), [session])
   useEffect(() => {
     setPane({ centerNodeId: sessionRootId, rightNodeId: null })
     setAsking(false)
     setAskSelection(null)
     setReturnAnchor(null)
+    setAskTreeOpen(false)
   }, [session.id, sessionRootId])
   // 桌面起草时中栏宽度的量取锚点；clientWidth 在挂载后才有值
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,6 +109,13 @@ export const SessionView = ({
   // 壳按系统默认动作（退应用/上一页历史）。
   useEffect(() => {
     const onBackKey = (event: Event) => {
+      // 面板开着时返回键只收面板，不退层（否则一次按键掉两级，
+      // 与"叠放只关最上层"的弹层惯例一致）
+      if (askTreeOpenRef.current) {
+        event.preventDefault()
+        setAskTreeOpen(false)
+        return
+      }
       setPane((current) => {
         if (current.centerNodeId !== null && current.centerNodeId !== sessionRootId) {
           event.preventDefault()
@@ -280,11 +307,28 @@ export const SessionView = ({
         <MobileHeader
           title={headerTitle}
           start={
-            pane.centerNodeId !== sessionRootId ? (
-              <button type="button" className={styles.headerBack} onClick={goBack}>
-                返回上一级
-              </button>
-            ) : undefined
+            <>
+              {/* 手机端标题行用图标：向左箭头是通用返回语义，把文字位置让给标题。
+                  触控目标与菜单/新对话同规格（44px），不因换图标而变小。 */}
+              {pane.centerNodeId !== sessionRootId ? (
+                <IconButton
+                  size="xl"
+                  tone="primary"
+                  icon={<IconBackOutline20 />}
+                  aria-label="返回上一级"
+                  onClick={goBack}
+                />
+              ) : null}
+              {hasAsks ? (
+                <IconButton
+                  size="xl"
+                  tone="primary"
+                  icon={<IconAskTreeOutline20 />}
+                  aria-label="查看追问树"
+                  onClick={() => setAskTreeOpen(true)}
+                />
+              ) : null}
+            </>
           }
         />
       ) : (
@@ -298,6 +342,17 @@ export const SessionView = ({
           {centerPath.length > 1 ? (
             <button type="button" className={styles.headerBack} onClick={goBack}>
               返回上一级
+            </button>
+          ) : null}
+          {/* 追问树入口（decisions/2026-11-25-ask-tree-navigator.md）：与「返回上一级」
+              并排。桌面空间充足，用文字更清楚；无追问时没有树可看，不渲染入口。 */}
+          {hasAsks ? (
+            <button
+              type="button"
+              className={styles.headerBack}
+              onClick={() => setAskTreeOpen(true)}
+            >
+              追问树
             </button>
           ) : null}
           {/* 右栏子对话控件：原本是右栏 lane 内一条 44px 顶栏，把右栏内容整体
@@ -448,6 +503,20 @@ export const SessionView = ({
             setAsking(false)
             setAskSelection(null)
           }}
+        />
+      ) : null}
+      {/* 追问树面板（decisions/2026-11-25-ask-tree-navigator.md §三）：点节点即跳转，
+          目标进中栏（planJumpTo）——手机端单格视口自然退化成整屏下潜。
+          currentId 取中栏节点；它未必是 lane 根，交给 askTreePath 归一即可。 */}
+      {askTreeOpen && askTree ? (
+        <AskTreePanel
+          tree={askTree}
+          currentId={pane.centerNodeId}
+          onJump={(nodeId) => {
+            setPane((p) => planJumpTo(p, nodeId))
+            setReturnAnchor(null)
+          }}
+          onClose={() => setAskTreeOpen(false)}
         />
       ) : null}
     </div>

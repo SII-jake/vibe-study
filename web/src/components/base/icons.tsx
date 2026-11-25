@@ -523,3 +523,30 @@ export const IconToastError16 = () => (
     />
   </svg>
 )
+
+/** 返回上一级（手机端标题行用图标）：向左的折角箭头，方向语义通用 */
+export const IconBackOutline20 = () => (
+  <svg width={20} height={20} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M9.3877 3.6123L8.6123 4.3877L4.74805 8.25H16.5V9.75H4.74805L8.6123 13.6123L9.3877 14.3877L8.6123 15.1631L3.44824 10L8.6123 4.83691L9.3877 3.6123Z"
+      fill="currentColor"
+    />
+  </svg>
+)
+
+/** 追问树：一竖主干 + 两条向右的枝，节点用方块表示 */
+export const IconAskTreeOutline20 = () => (
+  <svg width={20} height={20} viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4.25 3.5H5.75V16.25H4.25V3.5Z" fill="currentColor" opacity="0.55" />
+    <path d="M5 6.25H8.25V7.75H5V6.25Z" fill="currentColor" opacity="0.55" />
+    <path d="M5 12.25H8.25V13.75H5V12.25Z" fill="currentColor" opacity="0.55" />
+    <path
+      d="M9.5 4.75C9.5 4.33579 9.83579 4 10.25 4H15.75C16.1642 4 16.5 4.33579 16.5 4.75V7.75C16.5 8.16421 16.1642 8.5 15.75 8.5H10.25C9.83579 8.5 9.5 8.16421 9.5 7.75V4.75ZM11 5.5V7H15V5.5H11Z"
+      fill="currentColor"
+    />
+    <path
+      d="M9.5 10.75C9.5 10.3358 9.83579 10 10.25 10H15.75C16.1642 10 16.5 10.3358 16.5 10.75V13.75C16.5 14.1642 16.1642 14.5 15.75 14.5H10.25C9.83579 14.5 9.5 14.1642 9.5 13.75V10.75ZM11 11.5V13H15V11.5H11Z"
+      fill="currentColor"
+    />
+  </svg>
+)

@@ -55,3 +55,16 @@ export function planGoBack(view: PaneView, parentNodeId: string | null): PaneVie
   if (parentNodeId === null) return view
   return { centerNodeId: parentNodeId, rightNodeId: view.centerNodeId }
 }
+
+/**
+ * 追问树跳转：从任一节点直接跳过去，不逐级进出
+ * （decisions/2026-11-25-ask-tree-navigator.md §二）。
+ *
+ * 语义 = 「把它设为当前」：目标进中栏、右栏清空。桌面端祖先链照常铺开，
+ * 目标左侧仍是它的父层，父子对照不丢；手机端单格视口自然退化成整屏下潜。
+ * 不沿用 planPromote 是因为它只在右栏有内容时才动——跳转与右栏状态无关。
+ */
+export function planJumpTo(view: PaneView, nodeId: string): PaneView {
+  if (view.centerNodeId === nodeId && view.rightNodeId === null) return view
+  return { centerNodeId: nodeId, rightNodeId: null }
+}
