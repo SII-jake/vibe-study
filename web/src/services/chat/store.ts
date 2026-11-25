@@ -644,7 +644,11 @@ export const sendMessage = (
   if (get().importingHistory || !get().ready) {
     return false
   }
-  const prepared = prepareDraftMessage(getDraft(targetSessionId), useUploads.getState().tasks)
+  // 草稿按 lane 分键：发送读的是这个 lane 自己那份，不是同会话别处的草稿。
+  const prepared = prepareDraftMessage(
+    getDraft(targetSessionId, laneRootId),
+    useUploads.getState().tasks,
+  )
   if (!prepared) {
     return false
   }
@@ -707,7 +711,7 @@ export const sendMessage = (
     ])
   }
   persist(sessionId)
-  clearSentDraft(targetSessionId)
+  clearSentDraft(targetSessionId, laneRootId)
   void streamReply(sessionId, reply, { history, question })
   return true
 }

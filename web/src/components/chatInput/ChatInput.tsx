@@ -13,6 +13,7 @@ import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.
 import {
   addDraftFiles,
   EMPTY_DRAFT,
+  draftKeyOf,
   getDraft,
   prepareDraftMessage,
   removeDraftAttachment,
@@ -62,9 +63,14 @@ const Input = ({
   laneRootId?: string | null
 }) => {
   const t = useTranslate()
-  const draft = useDrafts((state) => state.drafts.get(sessionId) ?? EMPTY_DRAFT)
+  // 草稿按 lane 分键（用户 2026-11-25 报的网页版 bug：右栏输入时中栏输入框同步显示
+  // 同样内容）：双栏下同一会话同时挂着中栏与右栏两个输入框，只按会话取草稿会让
+  // 两个受控 textarea 读到同一份文字。
+  const draft = useDrafts(
+    (state) => state.drafts.get(draftKeyOf(sessionId, laneRootId)) ?? EMPTY_DRAFT,
+  )
   const { text, attachments } = draft
-  const setText = (value: string) => setDraftText(sessionId, value)
+  const setText = (value: string) => setDraftText(sessionId, value, laneRootId)
   const draftReady = useUploads((state) => prepareDraftMessage(draft, state.tasks) !== null)
   const streaming = useChatStore(
     (state) => sessionId !== null && Object.hasOwn(state.streaming, sessionId)
@@ -98,7 +104,7 @@ const Input = ({
     if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
       return
     }
-    const error = addDraftFiles(sessionId, files, useSettings.getState().apiKey ?? '')
+    const error = addDraftFiles(sessionId, files, useSettings.getState().apiKey ?? '', laneRootId)
     if (error) {
       showToast(error)
     }
@@ -106,25 +112,25 @@ const Input = ({
   const retryFile = useCallback(
     (id: string) => {
       if (!useChatStore.getState().importingHistory && ensureApiKey()) {
-        retryDraftAttachment(sessionId, id, useSettings.getState().apiKey ?? '')
+        retryDraftAttachment(sessionId, id, useSettings.getState().apiKey ?? '', laneRootId)
       }
     },
-    [sessionId]
+    [sessionId, laneRootId]
   )
   const removeFile = useCallback(
     (id: string) => {
       if (!useChatStore.getState().importingHistory) {
-        removeDraftAttachment(sessionId, id)
+        removeDraftAttachment(sessionId, id, laneRootId)
       }
     },
-    [sessionId]
+    [sessionId, laneRootId]
   )
   const dragging = useFileDrop(acceptFiles)
 
   /** 转写结果插入到光标处，并把光标移到插入内容之后 */
   const voice = useVoiceInput((transcript) => {
     const textarea = textareaRef.current
-    const current = getDraft(sessionId).text
+    const current = getDraft(sessionId, laneRootId).text
     const start = textarea?.selectionStart ?? current.length
     const end = textarea?.selectionEnd ?? current.length
     setText(current.slice(0, start) + transcript + current.slice(end))
@@ -156,7 +162,7 @@ const Input = ({
     if (
       useChatStore.getState().importingHistory ||
       voice.status !== 'idle' ||
-      !prepareDraftMessage(getDraft(sessionId), useUploads.getState().tasks)
+      !prepareDraftMessage(getDraft(sessionId, laneRootId), useUploads.getState().tasks)
     ) {
       return
     }
