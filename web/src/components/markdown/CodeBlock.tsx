@@ -69,15 +69,52 @@ const CodeInfoRow = ({
   )
 }
 
+/** 划线锚点（与 MarkdownAstRenderer 的 AnchorSpec 同形）：代码块内选中的
+ *  片段也要打 data-ask-referenced——高亮产物是 HTML 串，只能在切段后逐段
+ *  高亮，否则标记会插进标签中间。 */
+type CodeAnchor = { text: string; isReturn?: boolean; rootId?: string }
+
+/** 按锚点把代码切成「带标记 / 不带标记」的片段；锚点按首次出现定位，
+ *  互不重叠，重叠部分归先命中的锚点。 */
+function splitCodeByAnchors(
+  code: string,
+  anchors: CodeAnchor[],
+): Array<{ text: string; anchor?: CodeAnchor }> {
+  type Span = { start: number; end: number; anchor: CodeAnchor }
+  const spans: Span[] = []
+  for (const anchor of anchors) {
+    if (anchor.text === '') continue
+    const start = code.indexOf(anchor.text)
+    if (start < 0) continue
+    const end = start + anchor.text.length
+    if (spans.some((span) => start < span.end && end > span.start)) continue
+    spans.push({ start, end, anchor })
+  }
+  if (spans.length === 0) return [{ text: code }]
+  spans.sort((a, b) => a.start - b.start)
+  const parts: Array<{ text: string; anchor?: CodeAnchor }> = []
+  let cursor = 0
+  for (const span of spans) {
+    if (span.start > cursor) parts.push({ text: code.slice(cursor, span.start) })
+    parts.push({ text: code.slice(span.start, span.end), anchor: span.anchor })
+    cursor = span.end
+  }
+  if (cursor < code.length) parts.push({ text: code.slice(cursor) })
+  return parts
+}
+
 /** 代码块：语言包按需加载，不支持或尚未加载的语言按纯文本显示 */
 export const CodeBlock = memo(function CodeBlock({
   code,
   infostring,
   loading = false,
+  anchors,
 }: {
   code: string
   infostring: string
   loading?: boolean
+  /** 划线锚点（真机反馈 2026-11-25）：代码块内选中过的片段常驻下划线 */
+  anchors?: CodeAnchor[]
 }) {
   const isMermaid = infostring.toLowerCase() === 'mermaid'
   const [showDiagram, setShowDiagram] = useState(true)
@@ -115,6 +152,37 @@ export const CodeBlock = memo(function CodeBlock({
       </div>
       {isMermaid && showDiagram ? (
         <MermaidDiagram code={code} loading={loading} />
+      ) : anchors && anchors.length > 0 ? (
+        <pre>
+          {splitCodeByAnchors(code, anchors).map((part, index) =>
+            part.anchor ? (
+              <span
+                key={index}
+                data-ask-referenced
+                {...(part.anchor.isReturn ? { 'data-ask-return': true } : {})}
+                {...(part.anchor.rootId ? { 'data-ask-root': part.anchor.rootId } : {})}
+                dangerouslySetInnerHTML={{
+                  __html: Prism.highlight(
+                    part.text,
+                    Prism.languages[lang !== null && loaded ? lang : 'plaintext'],
+                    lang !== null && loaded ? lang : 'plaintext',
+                  ),
+                }}
+              />
+            ) : (
+              <span
+                key={index}
+                dangerouslySetInnerHTML={{
+                  __html: Prism.highlight(
+                    part.text,
+                    Prism.languages[lang !== null && loaded ? lang : 'plaintext'],
+                    lang !== null && loaded ? lang : 'plaintext',
+                  ),
+                }}
+              />
+            ),
+          )}
+        </pre>
       ) : (
         <pre dangerouslySetInnerHTML={{ __html: renderedHtml }}></pre>
       )}

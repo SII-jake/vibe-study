@@ -102,3 +102,73 @@ describe('下划线片段点击进入追问', () => {
     }
   })
 })
+
+// 真机反馈 2026-11-25「有时候选中的文字没有下划线」：实测把「有时候」定位成
+// 确定形态——引用块 / 表格 / 代码块内的选区，以及跨段落、跨列表项的跨块选区，
+// 全都只有兜底卡、没有下划线。根因两层：blockTextOf 只认 paragraph/heading/list
+// （其余块返回空串），逐块 indexOf 匹配也接不住跨块选区。
+describe('下划线覆盖所有可选中的正文形态', () => {
+  const markedTexts = () =>
+    [...container.querySelectorAll('[data-ask-referenced]')].map((el) => el.textContent)
+
+  it('引用块内选中的片段有下划线（不再只落兜底卡）', () => {
+    render({ content: '> 引用块里的这句被追问过。', fragmentAsk: [ask('u-q', '被追问过')] })
+    expect(markedTexts()).toEqual(['被追问过'])
+    expect(container.querySelector('[data-ask-fallback]')).toBeNull()
+  })
+
+  it('表格单元格内选中的片段有下划线', () => {
+    render({
+      content: '| 列A | 列B |\n| --- | --- |\n| 单元格内容 | 别的 |',
+      fragmentAsk: [ask('u-t', '单元格内容')],
+    })
+    expect(markedTexts()).toEqual(['单元格内容'])
+  })
+
+  it('代码块内选中的片段有下划线', () => {
+    render({ content: '```js\nconst target = 1\n```', fragmentAsk: [ask('u-c', 'const target = 1')] })
+    const marked = container.querySelector('.md-code-block [data-ask-referenced]')
+    expect(marked).toBeTruthy()
+    expect(marked!.textContent).toBe('const target = 1')
+  })
+
+  it('跨段落选中：两段各打与自己相交的部分，不落兜底卡', () => {
+    render({
+      content: '第一段结尾在此，然后继续。\n\n第二段开头接上。',
+      fragmentAsk: [ask('u-x', '继续。\n\n第二段开头')],
+    })
+    expect(markedTexts()).toEqual(['继续。', '第二段开头'])
+    expect(container.querySelector('[data-ask-fallback]')).toBeNull()
+  })
+
+  it('跨列表项选中：两个列表项各打与自己相交的部分', () => {
+    render({
+      content: '- 第一项文字\n- 第二项文字',
+      fragmentAsk: [ask('u-l', '文字\n第二项文字')],
+    })
+    expect(markedTexts()).toEqual(['文字', '第二项文字'])
+  })
+
+  it('引用块内跨两段选中', () => {
+    render({
+      content: '> 引用第一段。\n>\n> 引用第二段。',
+      fragmentAsk: [ask('u-b', '引用第一段。\n\n引用第二段。')],
+    })
+    expect(markedTexts()).toEqual(['引用第一段。', '引用第二段。'])
+  })
+
+  it('下划线仍可点进追问（跨块命中的每一段都可点）', () => {
+    const onAskOpen = vi.fn()
+    render({
+      content: '第一段结尾在此，然后继续。\n\n第二段开头接上。',
+      fragmentAsk: [ask('u-x2', '继续。\n\n第二段开头')],
+      onAskOpen,
+    })
+    const marks = container.querySelectorAll('[data-ask-referenced]')
+    expect(marks.length).toBe(2)
+    act(() => {
+      ;(marks[1] as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(onAskOpen).toHaveBeenCalledWith('u-x2')
+  })
+})
