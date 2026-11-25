@@ -956,3 +956,80 @@ describe('右栏开着时中栏选文追问：右栏让位给起草位', () => {
     expect(container.querySelectorAll('[data-ask-card]').length).toBeGreaterThanOrEqual(1)
   }, 20000)
 })
+
+// 用户 2026-11-25 报的网页版 bug：右栏输入时，中栏输入框同步显示同样内容。
+// 双栏下同一会话同时挂着两个 ChatInput（中栏 lane 一个、右栏一个），草稿若只按
+// 会话分键，两个受控 textarea 读的是同一份草稿——敲一边另一边跟着变。
+describe('双栏输入互不串扰：草稿按 lane 分键', () => {
+  const typeIn = (textarea: HTMLTextAreaElement, value: string) => {
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!
+      setter.call(textarea, value)
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  it('在右栏输入不改变中栏输入框内容，反之亦然', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 点卡进右栏：此刻 DOM 里有中栏与右栏两个 ChatInput
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    const rightPane = container.querySelector('[data-right-pane]')!
+    expect(rightPane).toBeTruthy()
+
+    const mainInput = [...container.querySelectorAll('textarea')].find(
+      (t) => !t.closest('[data-right-pane]'),
+    )!
+    const rightInput = rightPane.querySelector('textarea')!
+    expect(mainInput).toBeTruthy()
+    expect(rightInput).toBeTruthy()
+
+    // 在右栏打字
+    typeIn(rightInput, '右栏写的话')
+    expect(rightInput.value).toBe('右栏写的话')
+    // 效果：右栏有内容
+    expect(rightInput.value).toBe('右栏写的话')
+    // 不变量：中栏仍然是空的——这是用户报的那个 bug
+    expect(mainInput.value).toBe('')
+
+    // 反向：中栏打字也不影响右栏
+    typeIn(mainInput, '中栏写的话')
+    expect(mainInput.value).toBe('中栏写的话')
+    expect(rightInput.value).toBe('右栏写的话')
+  }, 20000)
+
+  it('两个输入框各有独立草稿：切走再切回都还在', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    const rightPane = container.querySelector('[data-right-pane]')!
+    typeIn([...container.querySelectorAll('textarea')].find((t) => !t.closest('[data-right-pane]'))!, '主线草稿')
+    typeIn(rightPane.querySelector('textarea')!, '右栏草稿')
+
+    // 关掉右栏再点回来：右栏草稿仍在，主线草稿不受影响
+    act(() => {
+      ;[...container.querySelectorAll('button')]
+        .find((b) => b.getAttribute('aria-label') === '关闭')!
+        .click()
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    const rightAgain = container.querySelector('[data-right-pane]')!
+    expect(rightAgain.querySelector('textarea')!.value).toBe('右栏草稿')
+    expect(
+      [...container.querySelectorAll('textarea')].find((t) => !t.closest('[data-right-pane]'))!.value,
+    ).toBe('主线草稿')
+  }, 20000)
+})
