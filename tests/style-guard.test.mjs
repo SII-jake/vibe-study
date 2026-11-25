@@ -54,6 +54,26 @@ describe('样式红线：追问交互关键规则不落空', () => {
   })
 })
 
+// 追问树面板（decisions/2026-11-25-ask-tree-navigator.md）：树行有缩进与当前位置
+// 标记，没有样式就退化成一片无层级的纯文字——"渲染出来了但看不出是树"的静默回退。
+const askTreeCss = readFileSync(
+  join(repoRoot, 'web/src/components/session/AskTreePanel.module.css'),
+  'utf8',
+)
+
+describe('样式红线：追问树面板关键规则不落空', () => {
+  it('当前位置有区别于普通行的样式标记', () => {
+    expect(askTreeCss).toContain('[data-current')
+  })
+  it('沉底追问有单独弱化样式（入口不隐藏、但不能与正常节点混同）', () => {
+    expect(askTreeCss).toContain('[data-orphan')
+  })
+  it('树行是可点的行块，不是裸 div 默认态', () => {
+    expect(askTreeCss).toContain('.row')
+    expect(askTreeCss).toContain('cursor: pointer')
+  })
+})
+
 const trackStageCss = readFileSync(
   join(repoRoot, 'web/src/components/session/TrackStage.module.css'),
   'utf8',

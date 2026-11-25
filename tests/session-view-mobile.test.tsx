@@ -176,7 +176,13 @@ describe('手机端点引子卡 + 追问消息呈现（真机反馈修复）', (
     act(() => { card.click() })
     // 点卡即导航（与提交即导航同语义）：轨道增格、视口钉到子对话那格
     expect(container.querySelectorAll('[data-lane]').length).toBe(2)
-    expect(container.textContent).toContain('返回上一级')
+    // 「返回上一级」在手机端用图标（向左箭头）——通用返回语义，把标题宽度让出来。
+    // 断言改按无障碍名称查，图标按钮没有可见文字。
+    expect(
+      [...container.querySelectorAll('button')].some(
+        (b) => b.getAttribute('aria-label') === '返回上一级',
+      ),
+    ).toBe(true)
     // ⑦ 新 lane 里追问的用户消息不是主线"同级版本"——不应出现 <2/2> 版本切换器；
     // BranchSwitcher 仅在真·同级分支（ids.length > 1）时渲染
     expect(container.textContent).not.toMatch(/1\s*\/\s*2/)
@@ -342,5 +348,94 @@ describe('第二轮真机反馈 ③：lane 内发送挂在该层链尾', () => {
     const sent = fresh.messages.find((m) => m.role === 'user' && m.content === '在追问层里接着问')
     expect(sent).toBeTruthy()
     expect(sent!.parentId).toBe('r1')
+  }, 20000)
+})
+
+// 追问树导航（decisions/2026-11-25-ask-tree-navigator.md §四）：手机端入口用图标
+// （文字会挤占标题宽度），点开是同一套面板；点节点=整屏下潜到那一层。
+describe('手机端追问树（图标入口 + 整屏下潜）', () => {
+  const headerButton = (label: string) =>
+    [...container.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)
+  const treeRow = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-ask-tree-row="${id}"]`)
+
+  it('有追问时标题行出现「查看追问树」图标入口', async () => {
+    const session = await seedStore(askedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    expect(headerButton('查看追问树')).toBeTruthy()
+  }, 20000)
+
+  it('主线根层不显示返回图标（无父级可回）', async () => {
+    const session = await seedStore(askedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 有追问 → 追问树图标在；但没下潜 → 返回图标不在
+    expect(headerButton('查看追问树')).toBeTruthy()
+    expect(headerButton('返回上一级')).toBeUndefined()
+  }, 20000)
+
+  it('下潜一层后返回图标出现，点它退回父层', async () => {
+    const session = await seedStore(askedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    expect(container.querySelectorAll('[data-lane]').length).toBe(2)
+    const back = headerButton('返回上一级')
+    expect(back).toBeTruthy()
+    act(() => {
+      back!.click()
+    })
+    expect(container.querySelectorAll('[data-lane]').length).toBe(1)
+  }, 20000)
+
+  it('点图标入口打开面板，点另一层追问即整屏下潜过去', async () => {
+    const session = await seedStore(askedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 先下潜到 q1，再打开树——当前位置应在 q1，且主线根仍在列表里
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    act(() => {
+      headerButton('查看追问树')!.click()
+    })
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeTruthy()
+    expect(treeRow('q1')!.getAttribute('aria-current')).toBe('true')
+
+    // 跳回主线根：面板关闭、lane 回到 1 格
+    act(() => {
+      treeRow('u1')!.click()
+    })
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeNull()
+    expect(container.querySelectorAll('[data-lane]').length).toBe(1)
+  }, 20000)
+
+  it('面板打开时返回键只收面板，整屏下潜的层不动', async () => {
+    const session = await seedStore(askedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    expect(container.querySelectorAll('[data-lane]').length).toBe(2)
+    act(() => {
+      headerButton('查看追问树')!.click()
+    })
+    const event = new Event('vite-back', { cancelable: true })
+    act(() => {
+      document.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(true)
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeNull()
+    // 层没退：仍是 2 格（下潜状态保持不变）
+    expect(container.querySelectorAll('[data-lane]').length).toBe(2)
   }, 20000)
 })

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   planAsk,
   planGoBack,
+  planJumpTo,
   planPlaceChild,
   planPromote,
   type PaneView,
@@ -55,5 +56,25 @@ describe('planGoBack（返回上一级=视口左移一格）', () => {
   it('无父级时不变', () => {
     const view: PaneView = { centerNodeId: 'child-1', rightNodeId: null }
     expect(planGoBack(view, null)).toEqual(view)
+  })
+})
+
+// 追问树跳转（decisions/2026-11-25-ask-tree-navigator.md §二）：从任一节点直接
+// 跳过去，不逐级进出。语义=「把它设为当前」——目标进中栏、右栏清空，
+// 桌面端祖先链随之铺开（目标左侧是它的父层，父子对照仍在）。
+describe('planJumpTo（追问树跳转：目标进中栏）', () => {
+  it('跳到任意深度的追问：目标进中栏，右栏清空', () => {
+    const view: PaneView = { centerNodeId: 'child-1', rightNodeId: 'child-2' }
+    expect(planJumpTo(view, 'deep-3')).toEqual({ centerNodeId: 'deep-3', rightNodeId: null })
+  })
+
+  it('跳回主线根：回到默认单栏态', () => {
+    const view: PaneView = { centerNodeId: 'deep-3', rightNodeId: null }
+    expect(planJumpTo(view, 'root')).toEqual({ centerNodeId: 'root', rightNodeId: null })
+  })
+
+  it('右栏无内容时同样成立（不因空右栏走别的分支）', () => {
+    const view: PaneView = { centerNodeId: 'root', rightNodeId: null }
+    expect(planJumpTo(view, 'child-1')).toEqual({ centerNodeId: 'child-1', rightNodeId: null })
   })
 })

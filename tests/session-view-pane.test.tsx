@@ -710,3 +710,121 @@ describe('右栏标题显示该层自己的标题', () => {
     expect(controls!.textContent).not.toContain('子问一')
   }, 20000)
 })
+
+// 追问树导航（decisions/2026-11-25-ask-tree-navigator.md）：追问一多，沿引子卡
+// 逐层进出找不回之前的分支。「返回上一级」旁边加一个「追问树」入口，摊开整棵树、
+// 标出当前位置，点任一节点直接跳过去（planJumpTo：目标进中栏）。
+describe('追问树入口与跳转（桌面端）', () => {
+  const treeButton = () =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === '追问树')
+  const treeRow = (id: string) =>
+    document.querySelector<HTMLElement>(`[data-ask-tree-row="${id}"]`)
+
+  it('有追问时标题行出现「追问树」入口', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    const header = container.querySelector('[data-session-header]')!
+    expect([...header.querySelectorAll('button')].some((b) => b.textContent?.trim() === '追问树')).toBe(
+      true,
+    )
+  }, 20000)
+
+  it('无追问的会话不渲染入口（主线只有问答，没有树可看）', async () => {
+    const session = await seedStore(baseSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    expect(treeButton()).toBeUndefined()
+  }, 20000)
+
+  it('点入口打开面板：列出整棵树并标出当前位置', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      treeButton()!.click()
+    })
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeTruthy()
+    // nestedSession 的树：u1 → q1 → q2（q2 是 q1 回答上的再追问）。
+    // 默认只展开到当前位置（u1），故 q1 可见、q2 折叠在 q1 之下。
+    expect(treeRow('u1')).toBeTruthy()
+    expect(treeRow('q1')).toBeTruthy()
+    expect(treeRow('q2')).toBeFalsy()
+    // 当前位置仍在主线根
+    expect(treeRow('u1')!.getAttribute('aria-current')).toBe('true')
+  }, 20000)
+
+  it('点树里任一追问：面板关闭且中栏直接跳过去（不必逐级进出）', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    expect(container.textContent).toContain('主线一。')
+    act(() => {
+      treeButton()!.click()
+    })
+    act(() => {
+      treeRow('q1')!.click()
+    })
+    // 面板关闭
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeNull()
+    // 中栏已是 q1 那一层：轨道铺开（父层 + 目标 + 起草占位，computeTrack 恒补末格），
+    // 正文是 q1 的回答
+    expect(container.textContent).toContain('子答一。')
+    expect(container.querySelectorAll('[data-lane]').length).toBe(3)
+  }, 20000)
+
+  it('跳到深层节点：祖先链完整铺开，可直接落在 q2 那层', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    act(() => {
+      treeButton()!.click()
+    })
+    // 先展开 q1 才看得到 q2（默认只展开到当前位置）
+    act(() => {
+      ;(treeRow('q1')!.querySelector('[data-ask-tree-toggle]') as HTMLElement).click()
+    })
+    act(() => {
+      treeRow('q2')!.click()
+    })
+    // 一次跳到第二层：轨道为 u1 → q1 → q2 + 起草占位
+    expect(container.textContent).toContain('孙答。')
+    expect(container.querySelectorAll('[data-lane]').length).toBe(4)
+  }, 20000)
+
+  it('面板打开时返回键只关面板，不退层', async () => {
+    const session = await seedStore(nestedSession())
+    act(() => {
+      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+    })
+    // 先下潜一层：卡进右栏 → 设为当前（中栏 = q1）
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
+    })
+    act(() => {
+      ;[...container.querySelectorAll('button')]
+        .find((b) => b.textContent?.includes('设为当前'))!
+        .click()
+    })
+    expect(container.querySelectorAll('[data-lane]').length).toBe(3)
+
+    act(() => {
+      treeButton()!.click()
+    })
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeTruthy()
+
+    const event = new Event('vite-back', { cancelable: true })
+    act(() => {
+      document.dispatchEvent(event)
+    })
+    // 事件被消费（壳不退应用），但层没退——只收了面板
+    expect(event.defaultPrevented).toBe(true)
+    expect(document.querySelector('[data-ask-tree-panel]')).toBeNull()
+    expect(container.querySelectorAll('[data-lane]').length).toBe(3)
+  }, 20000)
+})
