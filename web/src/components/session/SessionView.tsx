@@ -236,6 +236,10 @@ export const SessionView = ({
   const lanes = computeTrack(
     centerPath.length > 0 ? centerPath : sessionRootId ? [sessionRootId] : [],
     pane.rightNodeId,
+    // 起草期间右栏让位给起草位（§二.3 planAsk 中栏选文「右栏切起草态」）：
+    // pane.rightNodeId 保持不动，取消起草后原子对话原位回位，但末格必须是起草位，
+    // 否则旧子对话格占着右栏、AskPane 无处渲染（用户 2026-11-25 报的网页版 bug）。
+    Boolean(desktopDraft),
   )
   // 手机端恒走 TrackStage（真机反馈修复⑤——曾有 mobileTrack 根态回落分支：
   // 主线根时撤下 TrackStage 走裸 MessageList，提交瞬间"挂载即平移"无滑动过程；
@@ -358,7 +362,10 @@ export const SessionView = ({
           {/* 右栏子对话控件：原本是右栏 lane 内一条 44px 顶栏，把右栏内容整体
               压低一条工具栏的高度、与中栏错开（真机反馈 2026-11-22）。移进标题行
               右端后右栏 lane 首个子元素直接是消息列表，两栏内容自然顶对齐。 */}
-          {rightSession ? (
+          {/* 起草期间右栏是起草位，子对话此刻不在眼前——控件跟着让位。否则「设为当前」
+              会把一块看不见的对话升进中栏，用户无从理解发生了什么。pane.rightNodeId
+              原地保留，取消起草后控件随子对话一起回位。 */}
+          {rightSession && !desktopDraft ? (
             <div className={styles.headerRight} data-right-controls>
               <span className={styles.headerRightLabel}>{rightTitle}</span>
               <button

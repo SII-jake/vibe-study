@@ -23,14 +23,22 @@ export const LANES_IN_VIEW = 2
 /**
  * 桌面 lane 序列：祖先链（root…center）+ 右栏。
  * 右栏缺席时末尾补 draft 起草占位，保证视口永远能框住相邻两格。
+ *
+ * drafting 为真时末格恒为起草位（decisions/2026-11-19 §二.3 planAsk 中栏选文：
+ * 「两栏不动，右栏切起草态」）——pane 的 rightNodeId 保持不动（取消起草后原子对话
+ * 原位回位），但右栏的视觉形态换成起草位，否则旧子对话格占着右栏、起草框无处渲染。
  */
-export function computeTrack(centerPath: string[], rightNodeId: string | null): Lane[] {
+export function computeTrack(
+  centerPath: string[],
+  rightNodeId: string | null,
+  drafting = false,
+): Lane[] {
   const lanes: Lane[] = centerPath.map((id, index) => ({
     nodeId: id,
     relation: index === 0 ? 'root' : 'child',
   }))
   lanes.push(
-    rightNodeId === null
+    drafting || rightNodeId === null
       ? { nodeId: null, relation: 'draft' }
       : { nodeId: rightNodeId, relation: 'child' },
   )
