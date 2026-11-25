@@ -55,6 +55,14 @@ describe('OTA 下载链路（真机反馈：系统下载器不认自签证书，
     expect(mainActivity).toContain('TRUSTED_CERT_SHA256')
   })
 
+  it('下载进度回填启动页：读 Content-Length 并发 vibe-ota-progress', () => {
+    // 真机反馈：只有一行"下载中"，看不出在不在动。原生侧必须上报真实字节数，
+    // 且总量取自响应头而不是猜；拿不到总量时上报 -1，由启动页退化成"已下载量"。
+    expect(mainActivity).toContain('notifyOtaProgress')
+    expect(mainActivity).toContain('getContentLengthLong')
+    expect(mainActivity).toContain('vibe-ota-progress')
+  })
+
   it('系统 DownloadManager 整段退役（它在 App 进程外，WebView 放行管不到）', () => {
     expect(mainActivity).not.toContain('DownloadManager')
     expect(mainActivity).not.toContain('ACTION_DOWNLOAD_COMPLETE')

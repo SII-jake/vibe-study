@@ -376,14 +376,31 @@ public class MainActivity extends BridgeActivity {
                             notifyOtaFailed("http-" + conn.getResponseCode());
                             return;
                         }
+                        // 真机反馈：界面上只有一行"下载中"，看不出到底有没有在动、走到哪了。
+                        // 服务端静态响应带准确的 Content-Length（实测 APK 3MB 级），
+                        // 拿到总量就能算真实百分比；拿不到（-1，分块传输）则退化成只报
+                        // 已下载量，绝不拿假分母凑百分比。
+                        long total = conn.getContentLengthLong();
+                        long received = 0;
+                        long lastReportAt = 0;
+                        notifyOtaProgress(0, total);
                         try (InputStream in = conn.getInputStream();
                              FileOutputStream out = new FileOutputStream(tmp)) {
                             byte[] buffer = new byte[64 * 1024];
                             int read;
                             while ((read = in.read(buffer)) != -1) {
                                 out.write(buffer, 0, read);
+                                received += read;
+                                // 节流到约 10 次/秒：每次上报是一次跨线程 JS 求值，
+                                // 64KB 一块不节流会刷出上千次 IPC，界面反而卡住。
+                                long now = System.currentTimeMillis();
+                                if (now - lastReportAt >= 100) {
+                                    lastReportAt = now;
+                                    notifyOtaProgress(received, total);
+                                }
                             }
                         }
+                        notifyOtaProgress(received, total);
                         conn.disconnect();
                         if (!Sha256Verifier.matches(tmp, expectedSha256)) {
                             //noinspection ResultOfMethodCallIgnored
@@ -418,6 +435,19 @@ public class MainActivity extends BridgeActivity {
             if (getBridge() == null || getBridge().getWebView() == null) return;
             String js = "document.dispatchEvent(new CustomEvent('vibe-ota-failed',"
                 + " { detail: { reason: '" + reason + "' } }))";
+            getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(js, null));
+        }
+
+        /**
+         * 下载进度回填启动页。
+         *
+         * @param received 已写入字节数
+         * @param total    响应头给的 Content-Length；未知时为 -1（启动页改为展示已下载量）
+         */
+        private void notifyOtaProgress(long received, long total) {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
+            String js = "document.dispatchEvent(new CustomEvent('vibe-ota-progress',"
+                + " { detail: { received: " + received + ", total: " + total + " } }))";
             getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(js, null));
         }
 

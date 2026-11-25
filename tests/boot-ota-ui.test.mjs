@@ -147,3 +147,66 @@ describe('可选更新放着不管', () => {
     expect(window.localStorage.getItem('vibe-study.dismissed-update')).toBeNull()
   })
 })
+
+describe('下载进度条（真机反馈：不知道是不是在下载）', () => {
+  /** 点「现在更新」把界面推进到下载中。 */
+  async function startDownload() {
+    mount()
+    await tapEnter()
+    document.getElementById('otaInstallBtn').click()
+  }
+
+  function progress() { return document.getElementById('otaProgress') }
+
+  it('点「现在更新」立刻出现进度条，总量未知时是不确定态', async () => {
+    await startDownload()
+    expect(progress().style.display).toBe('block')
+    expect(document.getElementById('otaProgressBar').className).toContain('indeterminate')
+    expect(document.getElementById('otaProgressText').textContent).toContain('准备下载')
+  })
+
+  it('收到原生进度事件：显示百分比，进度条按比例填充', async () => {
+    await startDownload()
+    document.dispatchEvent(new CustomEvent('vibe-ota-progress', {
+      detail: { received: 1000, total: 4000 },
+    }))
+    expect(document.getElementById('otaProgressText').textContent).toContain('25%')
+    expect(document.getElementById('otaProgressBar').style.width).toBe('25%')
+    expect(document.getElementById('otaProgressBar').className).not.toContain('indeterminate')
+  })
+
+  it('下完（received=total）：100% 并提示正在拉起安装界面', async () => {
+    await startDownload()
+    document.dispatchEvent(new CustomEvent('vibe-ota-progress', {
+      detail: { received: 4000, total: 4000 },
+    }))
+    expect(document.getElementById('otaProgressText').textContent).toContain('100%')
+    expect(document.getElementById('otaProgressText').textContent).toContain('安装')
+  })
+
+  it('没有内容长度时退化成已下载量，不显示假百分比', async () => {
+    await startDownload()
+    document.dispatchEvent(new CustomEvent('vibe-ota-progress', {
+      detail: { received: 1048576, total: -1 },
+    }))
+    expect(document.getElementById('otaProgressText').textContent).toContain('已下载')
+    expect(document.getElementById('otaProgressBar').className).toContain('indeterminate')
+  })
+
+  it('下载中途退回进入区：进度条不残留', async () => {
+    await startDownload()
+    expect(progress().style.display).toBe('block')
+    document.getElementById('editBtn').click()
+    document.getElementById('cancelBtn').click()
+    expect(progress().style.display).toBe('none')
+  })
+  it('下载失败：进度条收起，换成失败提示', async () => {
+    await startDownload()
+    document.dispatchEvent(new CustomEvent('vibe-ota-progress', {
+      detail: { received: 1000, total: 4000 },
+    }))
+    document.dispatchEvent(new CustomEvent('vibe-ota-failed', { detail: { reason: 'timeout' } }))
+    expect(progress().style.display).toBe('none')
+    expect(document.getElementById('otaHint').textContent).toContain('失败')
+  })
+})
