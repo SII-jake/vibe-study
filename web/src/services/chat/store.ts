@@ -470,6 +470,31 @@ const resumeReply = async (sessionId: string, replyId: string) => {
   }
   try {
     for await (const event of streamTaskEvents(replyId, 0, controller.signal)) {
+      // 标题与 stop_reason 在同一个 message_delta 里下发，而这帧恰在回复末尾——
+      // 刷新最容易丢掉的就是它。回放里补一次，否则会话永远停在「新对话」。
+      if (
+        event.type === 'message_delta' &&
+        (event.delta.stop_reason === 'end_turn' || event.delta.stop_reason === 'max_tokens') &&
+        event.delta.title?.trim() &&
+        !get().importingHistory
+      ) {
+        const title = event.delta.title.trim()
+        if (laneRootId) {
+          // 追问 lane：写该分支根 user 消息的 ask.title，不动会话标题
+          updateSession(sessionId, (session) => ({
+            ...session,
+            messages: session.messages.map((m) =>
+              m.id === laneRootId && m.role === 'user' && m.ask && !m.ask.title
+                ? { ...m, ask: { ...m.ask, title } }
+                : m
+            ),
+          }))
+        } else {
+          updateSession(sessionId, (session) =>
+            session.title ? session : { ...session, title }
+          )
+        }
+      }
       reply = applyEvent(reply, event, Date.now(), blockIndexes)
       if (document.visibilityState === 'hidden') {
         flush()
