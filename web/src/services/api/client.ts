@@ -139,30 +139,73 @@ const hasFile = (body: CreateMessageRequest) =>
       message.content.some((block) => block.type === 'image' || block.type === 'document')
   )
 
+/** 生成任务端点的同源基址：与聊天代理同一进程，故取页面源而非构建期 API_ORIGIN。 */
+const TASKS_URL = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/tasks`
+
+/** 生成任务快照：服务端只回状态，内容一律走事件流回放。 */
+export type TaskSnapshot = {
+  id: string
+  status: 'running' | 'done' | 'error' | 'aborted'
+  error?: string | null
+}
+
 /**
- * POST /anthropic/v1/messages（stream: true），逐个产出流式事件，收到 message_stop 时结束。
- * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
+ * POST /api/tasks：把一次生成交给服务端任务。
+ * 任务在服务端独立持有上游流，页面刷新只断开订阅、不影响生成——刷新续接的根在这里。
+ * id 由调用方给定（= 回复消息 id），它已随会话落盘，刷新后凭它重新订阅即可。
  */
-export async function* streamMessage(
-  apiKey: string,
+export const createTask = async (
+  id: string,
   body: CreateMessageRequest,
-  signal: AbortSignal
-): AsyncGenerator<MessageStreamEvent> {
-  const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
+  signal?: AbortSignal
+): Promise<TaskSnapshot> => {
+  const response = await request(TASKS_URL, {
     method: 'POST',
     headers: {
-      ...anthropicHeaders(apiKey, hasFile(body)),
       'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
+      Accept: 'application/json',
+      // 引用 file_id 时必须带这个 beta 头，由服务端原样转发给上游
+      ...(hasFile(body) ? { 'anthropic-beta': FILES_BETA } : {}),
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify({ id, request: { ...body, stream: true } }),
     signal,
   })
-  const contentType = response.headers.get('Content-Type') ?? ''
-  if (!response.body || !contentType.includes('text/event-stream')) {
-    throw await readErrorResponse(response, 'protocol', '')
+  return (await response.json()) as TaskSnapshot
+}
+
+/**
+ * GET /api/tasks?id=…：404 表示服务端没有这个任务（进程重启或已过期）。
+ * 这种情况回 null 而不是抛错——调用方据此把半截回复收成「已停止」。
+ */
+export const readTask = async (id: string): Promise<TaskSnapshot | null> => {
+  let response: Response
+  try {
+    response = await fetch(`${TASKS_URL}?id=${encodeURIComponent(id)}`, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch (error) {
+    throw new ApiError('network', error instanceof Error ? error.message : String(error))
   }
-  for await (const { event: eventName, data } of readServerSentEvents(response.body, signal)) {
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw await readErrorResponse(response)
+  }
+  return (await response.json()) as TaskSnapshot
+}
+
+/** DELETE /api/tasks?id=…：让服务端停掉上游（停止生成）。 */
+export const cancelTask = async (id: string): Promise<void> => {
+  await request(`${TASKS_URL}?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** 把 SSE 字节流还原成消息事件：message_stop 即结束，断流抛 interrupted。 */
+async function* decodeMessageEvents(
+  stream: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
+  for await (const { event: eventName, data } of readServerSentEvents(stream, signal)) {
     let payload: unknown
     try {
       payload = JSON.parse(data)
@@ -188,4 +231,39 @@ export async function* streamMessage(
   }
   // 服务端没有提供错误内容时保持为空，不推测断流原因。
   throw new ApiError('interrupted', '')
+}
+
+/**
+ * GET /api/tasks/events?id=…&since=…：订阅一条生成任务。
+ * since 之前的帧不再重放，供刷新/断线后带着游标续上。
+ */
+export async function* streamTaskEvents(
+  id: string,
+  since: number,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
+  const response = await request(`${TASKS_URL}/events?id=${encodeURIComponent(id)}&since=${since}`, {
+    headers: { Accept: 'text/event-stream' },
+    signal,
+  })
+  const contentType = response.headers.get('Content-Type') ?? ''
+  if (!response.body || !contentType.includes('text/event-stream')) {
+    throw await readErrorResponse(response, 'protocol', '')
+  }
+  yield* decodeMessageEvents(response.body, signal)
+}
+
+/**
+ * 发起一次流式生成：先在服务端建任务，再订阅它的事件流。
+ * apiKey 已不再参与（密钥托管在服务端），保留首参是为了不动既有调用点与测试桩的
+ * 位置参数顺序。
+ */
+export async function* streamMessage(
+  _apiKey: string,
+  body: CreateMessageRequest,
+  signal: AbortSignal,
+  taskId: string
+): AsyncGenerator<MessageStreamEvent> {
+  await createTask(taskId, body, signal)
+  yield* streamTaskEvents(taskId, 0, signal)
 }
