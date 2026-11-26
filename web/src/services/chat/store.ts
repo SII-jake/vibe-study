@@ -1,12 +1,12 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, cancelTask, readTask, streamMessage, streamTaskEvents } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
-import { rootedConversation } from './rootedConversation.js'
+import { laneAncestors, rootedConversation } from './rootedConversation.js'
 import * as db from './db.js'
 import {
   getDeletedSessionIds,
@@ -161,6 +161,9 @@ const deletingSessions = new Set<string>()
 const deletionTasks = new Set<Promise<boolean>>()
 /** 流键 → 待刷新的增量。落盘按会话，所以一并记住该流属于哪个会话。 */
 const streamFlushes = new Map<string, { sessionId: string; flush: () => void }>()
+/** 流键 → 服务端任务 id（= 回复消息 id）。停止生成要连服务端任务一起停，
+ *  否则只断本地订阅，上游会继续烧额度直到自己跑完。 */
+const streamTasks = new Map<string, string>()
 let accessSequence = 0
 let historyEpoch = 0
 let initTask: Promise<void> | undefined
@@ -361,22 +364,154 @@ const createReply = (): AssistantMessage => {
   }
 }
 
-/** 仍在生成中的回复（页面关闭或导出时未结束）按「已停止」处理 */
-const settleInterrupted = (session: Session): Session => {
-  if (
-    !session.messages.some(
-      (m) => m.role === 'assistant' && (m.status === 'pending' || m.status === 'streaming')
-    )
-  ) {
-    return session
+/** 反查某条消息所在的 lane 根；主线 lane 返回 null，与 streamKeyOf 的口径一致。 */
+const laneRootOfMessage = (session: Session, messageId: string): string | null => {
+  const rootId = session.rootMessageId
+  if (!rootId) {
+    return null
   }
-  return {
-    ...session,
-    messages: session.messages.map((m) =>
-      m.role === 'assistant' && (m.status === 'pending' || m.status === 'streaming')
-        ? settleReply(m, 'stopped', session.updatedAt)
-        : m
-    ),
+  const laneRoot = laneAncestors(session, messageId).at(-1) ?? null
+  return laneRoot === rootId ? null : laneRoot
+}
+
+/**
+ * 刷新后接续一条未跑完的回复（用户 2026-11-26：续接范围只到「刷新页面不中断」）。
+ *
+ * 修复前这里是无条件收成「已停止」，刷新必然打断生成。现在的口径：
+ * 问服务端「这个任务还在吗」——在就接上继续收，只有确实没有（进程重启或过期）才停。
+ *
+ * 接续的正确性要点：本地已存了半截块，而任务事件是从起点整段回放的，
+ * 直接叠加会重复。任务记着起始块数（baseBlocks），先裁回起点再重放。
+ */
+const resumeReply = async (sessionId: string, replyId: string) => {
+  const session = getSession(sessionId)
+  const current = session?.messages.find((m) => m.id === replyId)
+  if (!session || current?.role !== 'assistant') {
+    return
+  }
+  const laneRootId = laneRootOfMessage(session, replyId)
+  const key = streamKeyOf(sessionId, laneRootId)
+  if (Object.hasOwn(get().streaming, key)) {
+    return
+  }
+  // 先登记再等网络：接续期间这条 lane 就该显示「生成中」，
+  // 也顺带让 trimSessionCache 不会把它淘汰掉。
+  const controller = new AbortController()
+  set((state) => ({ streaming: { ...state.streaming, [key]: controller } }))
+
+  const release = () => {
+    set((state) => ({
+      streaming: Object.fromEntries(Object.entries(state.streaming).filter(([id]) => id !== key)),
+    }))
+  }
+  const stopAsInterrupted = () => {
+    const latest = getSession(sessionId)?.messages.find((m) => m.id === replyId)
+    if (latest?.role === 'assistant') {
+      updateReply(sessionId, settleReply(latest, 'stopped', Date.now()))
+      persist(sessionId)
+    }
+    release()
+  }
+
+  let snapshot: Awaited<ReturnType<typeof readTask>> = null
+  try {
+    snapshot = await readTask(replyId)
+  } catch {
+    // 网络不通时按「接不上」处理：宁可显示已停止，也不让界面永远卡在生成中
+    snapshot = null
+  }
+  if (!getSession(sessionId)) {
+    release()
+    return
+  }
+  if (!snapshot) {
+    stopAsInterrupted()
+    return
+  }
+
+  let reply: AssistantMessage = {
+    ...current,
+    status: 'streaming',
+    // 裁回任务起点：任务之前就存在的块（续写的前缀）保留，任务产出的部分整段重放
+    blocks: current.blocks.slice(0, snapshot.baseBlocks ?? 0),
+    stopReason: undefined,
+    stopDetails: undefined,
+    error: undefined,
+  }
+  updateReply(sessionId, reply)
+  let frame = 0
+  const flush = () => {
+    cancelAnimationFrame(frame)
+    frame = 0
+    updateReply(sessionId, reply)
+  }
+  streamFlushes.set(key, { sessionId, flush })
+  // 接续期间也登记任务映射：此时点「停止」必须连服务端任务一起停，
+  // 否则只断本地订阅，上游会继续跑完，刷新回来还会被当成「仍在生成」接回去。
+  streamTasks.set(key, replyId)
+  const blockIndexes = new Map<number, number>()
+  /**
+   * 按任务最终状态收尾。error 必须带上服务端给的原因——刷新回来只看到一句
+   * 「出错了」而丢失上游报错，用户没法判断该重试还是改问法。
+   * 本地已中止时以中止为准：snapshot 是接续**开始时**读的，此刻点过停止，
+   * 那份快照仍是 running，照它判成 done 就把用户的停止吞掉了。
+   */
+  const settleByTaskStatus = () => {
+    if (controller.signal.aborted) {
+      return settleReply(reply, 'stopped', Date.now())
+    }
+    if (snapshot.status === 'error') {
+      return settleReply(reply, 'error', Date.now(), {
+        kind: 'stream',
+        message: snapshot.error ?? '',
+      })
+    }
+    return settleReply(reply, snapshot.status === 'aborted' ? 'stopped' : 'done', Date.now())
+  }
+  try {
+    for await (const event of streamTaskEvents(replyId, 0, controller.signal)) {
+      reply = applyEvent(reply, event, Date.now(), blockIndexes)
+      if (document.visibilityState === 'hidden') {
+        flush()
+      } else {
+        frame ||= requestAnimationFrame(flush)
+      }
+    }
+    reply = settleByTaskStatus()
+  } catch (error) {
+    if (controller.signal.aborted) {
+      reply = settleReply(reply, 'stopped', Date.now())
+    } else if (error instanceof ApiError && error.kind === 'interrupted') {
+      // 服务端任务收尾时帧已放完，只是没有 message_stop——按结束原因收尾
+      reply = settleByTaskStatus()
+    } else if (error instanceof ApiError) {
+      reply = settleReply(reply, 'error', Date.now(), {
+        kind: error.kind,
+        message: error.message,
+        status: error.status,
+        localMessage: error.localMessage,
+      })
+    } else {
+      reply = settleReply(reply, 'error', Date.now(), {
+        kind: 'protocol',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  } finally {
+    cancelAnimationFrame(frame)
+    streamFlushes.delete(key)
+    updateReply(sessionId, reply)
+    release()
+    persist(sessionId)
+  }
+}
+
+/** 会话加载时把所有没跑完的回复接回服务端任务 */
+const resumePendingReplies = (sessionId: string, session: Session) => {
+  for (const message of session.messages) {
+    if (message.role === 'assistant' && (message.status === 'pending' || message.status === 'streaming')) {
+      void resumeReply(sessionId, message.id)
+    }
   }
 }
 
@@ -467,14 +602,17 @@ const ensureSessionLoaded = (id: string): Promise<void> => {
       if (!stored) {
         throw new Error(`Session ${id} is missing from local storage`)
       }
-      const settled = settleInterrupted(normalizeSession(stored))
+      // 未跑完的回复不再无条件收成「已停止」：先问服务端这个生成任务还在不在，
+      // 在就接上继续收（resumePendingReplies 异步进行，界面立刻可见半截内容）。
+      const normalized = normalizeSession(stored)
       // 读取期间可能已在列表重命名，保留最新元数据，不能让旧读取覆盖它。
-      const session = sameSummary(settled, summary) ? settled : { ...settled, ...summary }
+      const session = sameSummary(normalized, summary) ? normalized : { ...normalized, ...summary }
       touchSession(id)
       set((state) => ({ sessionCache: { ...state.sessionCache, [id]: session } }))
       if (session !== stored) {
         persist(id)
       }
+      resumePendingReplies(id, session)
       trimSessionCache()
     } catch (error) {
       if (epoch === historyEpoch && sessionLoads.get(id) === load) {
@@ -669,9 +807,19 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   }
 }
 
-/** 停止生成：只停指定 lane（缺省为主线），同会话其他 lane 照常跑。 */
-export const stopReply = (sessionId: string, laneRootId: string | null = null) =>
-  getStreamController(sessionId, laneRootId)?.abort()
+/**
+ * 停止生成：只停指定 lane（缺省为主线），同会话其他 lane 照常跑。
+ * 必须连服务端任务一起停——只 abort 本地订阅的话，上游会继续烧额度跑完，
+ * 而且刷新回来还会被当成"仍在生成"接回去。
+ */
+export const stopReply = (sessionId: string, laneRootId: string | null = null) => {
+  const key = streamKeyOf(sessionId, laneRootId)
+  const taskId = streamTasks.get(key)
+  if (taskId) {
+    void cancelTask(taskId).catch(() => {})
+  }
+  return getStreamController(sessionId, laneRootId)?.abort()
+}
 
 /**
  * 提交指定会话的最新草稿；null 表示新建会话。
@@ -1235,6 +1383,8 @@ const streamReply = async (
     updateReply(sessionId, reply)
   }
   streamFlushes.set(key, { sessionId, flush })
+  // 任务 id 就是这条回复的消息 id（服务端据此记账），停止生成时按 lane 取回
+  streamTasks.set(key, reply.id)
 
   try {
     for (let attempt = 0; ; attempt += 1) {
@@ -1269,7 +1419,11 @@ const streamReply = async (
             tools: serverTools(initial.search ?? false),
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },
-          controller.signal
+          controller.signal,
+          // 任务 id 就是回复消息 id：它随会话落盘，刷新后凭它重新订阅
+          reply.id,
+          // 任务开始前的块数（续写时是已有答案的块数），刷新重连据此刻回起点
+          reply.blocks.length
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
@@ -1357,6 +1511,7 @@ const streamReply = async (
   } finally {
     titleRequests.delete(controller)
     streamFlushes.delete(key)
+    streamTasks.delete(key)
     cancelAnimationFrame(frame)
     updateReply(sessionId, reply)
     set((state) => ({

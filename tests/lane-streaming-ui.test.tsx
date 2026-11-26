@@ -34,6 +34,9 @@ vi.hoisted(() => {
 vi.mock('../web/src/services/api/client.js', () => ({
   API_ORIGIN: 'http://test.local',
   streamMessage: vi.fn(async function* () {}),
+  readTask: vi.fn(async () => null),
+  streamTaskEvents: vi.fn(async function* () {}),
+  cancelTask: vi.fn(async () => {}),
   request: vi.fn(async () => new Response()),
   verifyApiKey: vi.fn(async () => {}),
   uploadFile: vi.fn(async () => ({ id: 'f1' })),

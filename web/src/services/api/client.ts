@@ -147,6 +147,8 @@ export type TaskSnapshot = {
   id: string
   status: 'running' | 'done' | 'error' | 'aborted'
   error?: string | null
+  /** 任务开始前该回复已有的块数：刷新重连时据此裁回起点再重放，避免重复块 */
+  baseBlocks?: number
 }
 
 /**
@@ -157,7 +159,8 @@ export type TaskSnapshot = {
 export const createTask = async (
   id: string,
   body: CreateMessageRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  baseBlocks = 0
 ): Promise<TaskSnapshot> => {
   const response = await request(TASKS_URL, {
     method: 'POST',
@@ -167,7 +170,7 @@ export const createTask = async (
       // 引用 file_id 时必须带这个 beta 头，由服务端原样转发给上游
       ...(hasFile(body) ? { 'anthropic-beta': FILES_BETA } : {}),
     },
-    body: JSON.stringify({ id, request: { ...body, stream: true } }),
+    body: JSON.stringify({ id, baseBlocks, request: { ...body, stream: true } }),
     signal,
   })
   return (await response.json()) as TaskSnapshot
@@ -262,8 +265,9 @@ export async function* streamMessage(
   _apiKey: string,
   body: CreateMessageRequest,
   signal: AbortSignal,
-  taskId: string
+  taskId: string,
+  baseBlocks = 0
 ): AsyncGenerator<MessageStreamEvent> {
-  await createTask(taskId, body, signal)
+  await createTask(taskId, body, signal, baseBlocks)
   yield* streamTaskEvents(taskId, 0, signal)
 }

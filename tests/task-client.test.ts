@@ -29,7 +29,7 @@ beforeEach(() => {
 })
 
 describe('createTask', () => {
-  it('POST /api/tasks，body 为 { id, request }', async () => {
+  it('POST /api/tasks，body 为 { id, baseBlocks, request }', async () => {
     const fetchSpy = stubFetch(async () =>
       Response.json({ id: 'm1', status: 'running' }, { status: 200 }),
     )
@@ -41,9 +41,16 @@ describe('createTask', () => {
     // stream: true 由通道自己补——服务端原样转发请求体，不会再帮它加
     expect(JSON.parse(String(init?.body))).toEqual({
       id: 'm1',
+      baseBlocks: 0,
       request: { messages: [{ role: 'user', content: 'hi' }], stream: true },
     })
     expect(snapshot).toEqual({ id: 'm1', status: 'running' })
+  })
+
+  it('baseBlocks 透传给服务端——刷新重连要据此裁回起点', async () => {
+    const fetchSpy = stubFetch(async () => Response.json({ id: 'm1', status: 'running' }))
+    await createTask('m1', { messages: [] }, undefined, 3)
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body)).baseBlocks).toBe(3)
   })
 })
 

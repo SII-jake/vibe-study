@@ -7,6 +7,9 @@ import type { Session, UserMessage } from '../web/src/services/chat/types.js'
 
 vi.mock('../web/src/services/api/client.js', () => ({
   streamMessage: vi.fn(),
+  readTask: vi.fn(async () => null),
+  streamTaskEvents: vi.fn(async function* () {}),
+  cancelTask: vi.fn(async () => {}),
   ApiError: class ApiError extends Error {},
 }))
 // db.ts 真实导出名（grep '^export' 核实）；store.ts 的 persist 走 saveSession，

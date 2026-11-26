@@ -9,6 +9,9 @@ import type { Session } from '../web/src/services/chat/types.js'
 
 vi.mock('../web/src/services/api/client.js', () => ({
   streamMessage: vi.fn(),
+  readTask: vi.fn(async () => null),
+  streamTaskEvents: vi.fn(async function* () {}),
+  cancelTask: vi.fn(async () => {}),
   ApiError: class ApiError extends Error {},
 }))
 vi.mock('../web/src/services/chat/db.js', () => ({

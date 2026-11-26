@@ -43,6 +43,9 @@ vi.mock('../web/src/services/api/client.js', () => ({
   // streamMessage 真实契约是 async generator（for await 消费）——mock 成
   // 永不 yield 的异步生成器，流式挂起不推进；本例断言不依赖流式内容
   streamMessage: vi.fn(async function* () {}),
+  readTask: vi.fn(async () => null),
+  streamTaskEvents: vi.fn(async function* () {}),
+  cancelTask: vi.fn(async () => {}),
   request: vi.fn(async () => new Response()),
   verifyApiKey: vi.fn(async () => {}),
   uploadFile: vi.fn(async () => ({ id: 'f1' })),

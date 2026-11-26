@@ -335,8 +335,14 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
           sendJson(response, 400, { error: '需要字符串 id 与 request' })
           return
         }
-        const task = taskStore.create(payload.id, (emit, signal) =>
-          runUpstream(payload.request, request.headers['anthropic-beta'], emit, signal),
+        // baseBlocks：任务开始前该回复已有的块数。刷新重连时据此裁回起点再重放，
+        // 否则本地残块与整段回放会叠加出重复内容（续写场景尤其明显）。
+        const baseBlocks = Number.isInteger(payload.baseBlocks) ? payload.baseBlocks : 0
+        const task = taskStore.create(
+          payload.id,
+          (emit, signal) =>
+            runUpstream(payload.request, request.headers['anthropic-beta'], emit, signal),
+          { baseBlocks },
         )
         // 立即回执：任务在后台跑，不等它结束
         sendJson(response, 200, { id: task.id, status: task.status })
@@ -349,7 +355,12 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
           sendJson(response, 404, { error: '未知任务' })
           return
         }
-        sendJson(response, 200, { id: task.id, status: task.status, error: task.error })
+        sendJson(response, 200, {
+          id: task.id,
+          status: task.status,
+          error: task.error,
+          baseBlocks: task.baseBlocks,
+        })
         return
       }
 
