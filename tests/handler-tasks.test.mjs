@@ -103,12 +103,16 @@ describe('POST /api/tasks', () => {
     await running.close()
   })
 
-  it('同 id 重复建任务不会起两条上游流', async () => {
-    const fetchImpl = vi.fn(async () => sseBody([FRAME_STOP]))
+  it('同 id 在跑时重复建任务不会起两条上游流', async () => {
+    // 上游必须挂在中间态：任务若已结束，同 id 是可以重建的（续写/重试复用同一 lane 键）
+    const upstream = controlledUpstream([FRAME_START, FRAME_STOP])
+    const fetchImpl = vi.fn(async () => upstream.response)
     const running = await serve(baseConfig(), fetchImpl)
     await startTask(running.base, 'm1')
     await startTask(running.base, 'm1')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+    upstream.state.next()
+    await wait()
     await running.close()
   })
 

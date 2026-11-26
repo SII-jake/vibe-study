@@ -64,6 +64,28 @@ describe('生成任务仓储：生命周期', () => {
     expect(first).toHaveBeenCalledTimes(1)
     expect(second).not.toHaveBeenCalled()
   })
+
+  it('同 id 在旧任务结束后可以重建（续写复用同一 lane 键）', async () => {
+    const store = createTaskStore()
+    store.create('t1', async (emit) => {
+      emit(event('message_stop'))
+    })
+    await store.settled('t1')
+    const second = vi.fn(async (emit) => {
+      emit(event('message_start'))
+    })
+    store.create('t1', second)
+    await store.settled('t1')
+    expect(second).toHaveBeenCalledTimes(1)
+    // 重建后事件从空开始，不回放上一轮
+    expect(store.get('t1')?.events).toHaveLength(1)
+  })
+
+  it('baseBlocks 记在任务上，供刷新后重连裁掉本地已有的前缀块', async () => {
+    const store = createTaskStore()
+    store.create('t1', async () => {}, { baseBlocks: 3 })
+    expect(store.get('t1')?.baseBlocks).toBe(3)
+  })
 })
 
 describe('生成任务仓储：订阅与回放', () => {
