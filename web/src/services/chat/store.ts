@@ -87,7 +87,8 @@ type ChatState = {
   syncError: 'too-large' | 'network' | 'http' | 'malformed' | null
   /** null 表示新对话（欢迎页） */
   activeId: string | null
-  /** 正在生成回复的会话 */
+  /** 正在生成的回复，按 lane 建键（见 streamKeyOf）：主线 lane 用会话 id，
+   *  追问 lane 追加 laneRootId——同一会话里多条追问可同时生成，互不阻塞。 */
   streaming: Record<string, AbortController>
 }
 
@@ -114,10 +115,40 @@ const getSession = (id: string) => {
   return Object.hasOwn(cache, id) ? cache[id] : undefined
 }
 
-const getStreamController = (id: string) => {
+/**
+ * 生成任务的键。主线 lane 仍以会话 id 作键（旧状态与既有语义都不变），
+ * 追问 lane 追加 laneRootId。分隔符用 NUL：会话 id 与消息 id 都是生成的
+ * uuid，不可能含它。
+ *
+ * 键的粒度就是并发的粒度。以前按会话建键，一条 lane 在跑就把整个会话锁死：
+ * 主线生成时发起追问会被静默拒绝，追问生成时主线也发不出去。
+ */
+export const streamKeyOf = (sessionId: string, laneRootId: string | null = null) =>
+  laneRootId === null ? sessionId : `${sessionId}\u0000${laneRootId}`
+
+/** 该键是否属于这个会话——会话级操作要覆盖它的所有 lane */
+const keyBelongsToSession = (key: string, sessionId: string) =>
+  key === sessionId || key.startsWith(`${sessionId}\u0000`)
+
+/** 该会话是否还有任一 lane 在生成（界面顶部状态用；lane 内判定用 isLaneStreaming） */
+export const isSessionStreaming = (state: ChatState, sessionId: string) =>
+  Object.keys(state.streaming).some((key) => keyBelongsToSession(key, sessionId))
+
+/** 该会话全部 lane 的中止器（删会话、换历史、改标题要一起处理） */
+const sessionControllers = (sessionId: string) =>
+  Object.entries(get().streaming)
+    .filter(([key]) => keyBelongsToSession(key, sessionId))
+    .map(([, controller]) => controller)
+
+const getStreamController = (id: string, laneRootId: string | null = null) => {
   const streams = get().streaming
-  return Object.hasOwn(streams, id) ? streams[id] : undefined
+  const key = streamKeyOf(id, laneRootId)
+  return Object.hasOwn(streams, key) ? streams[key] : undefined
 }
+
+/** 供界面按 lane 判定：这条 lane 是否正在生成（停止按钮、分支卡禁用等） */
+export const isLaneStreaming = (sessionId: string, laneRootId: string | null = null) =>
+  getStreamController(sessionId, laneRootId) !== undefined
 
 const sameSummary = (a: SessionSummary, b: SessionSummary) =>
   a.title === b.title && a.createdAt === b.createdAt && a.updatedAt === b.updatedAt
@@ -128,7 +159,8 @@ const unsavedSessions = new Set<string>()
 const pendingFiles = new Map<string, db.StoredFile[]>()
 const deletingSessions = new Set<string>()
 const deletionTasks = new Set<Promise<boolean>>()
-const streamFlushes = new Map<string, () => void>()
+/** 流键 → 待刷新的增量。落盘按会话，所以一并记住该流属于哪个会话。 */
+const streamFlushes = new Map<string, { sessionId: string; flush: () => void }>()
 let accessSequence = 0
 let historyEpoch = 0
 let initTask: Promise<void> | undefined
@@ -146,7 +178,7 @@ const trimSessionCache = () => {
     .filter(
       (id) =>
         id !== state.activeId &&
-        !Object.hasOwn(state.streaming, id) &&
+        !isSessionStreaming(state, id) &&
         !unsavedSessions.has(id) &&
         !deletingSessions.has(id)
     )
@@ -254,12 +286,17 @@ export const bindChatPersistence = () => {
     if (get().importingHistory) {
       return
     }
-    for (const [id, flush] of streamFlushes) {
+    // 落盘按会话：同一会话可能有多条 lane 同时在跑，逐条 flush 后按会话去重落盘
+    const flushed = new Set<string>()
+    for (const { sessionId, flush } of streamFlushes.values()) {
       flush()
-      persist(id)
+      flushed.add(sessionId)
+    }
+    for (const sessionId of flushed) {
+      persist(sessionId)
     }
     for (const id of unsavedSessions) {
-      if (!streamFlushes.has(id)) {
+      if (!flushed.has(id)) {
         persist(id)
       }
     }
@@ -459,7 +496,7 @@ const waitForIdle = (sessionId?: string) =>
     const isIdle = (state: ChatState) =>
       sessionId === undefined
         ? Object.keys(state.streaming).length === 0
-        : !Object.hasOwn(state.streaming, sessionId)
+        : !isSessionStreaming(state, sessionId)
     if (isIdle(get())) {
       resolve()
       return
@@ -547,8 +584,8 @@ export const renameSession = (id: string, title: string) => {
   if (get().importingHistory || deletingSessions.has(id)) {
     return
   }
-  const controller = getStreamController(id)
-  if (controller) {
+  // 同一会话可能有多条 lane 在跑：手动改名后全部 lane 都不再申请自动标题
+  for (const controller of sessionControllers(id)) {
     titleRequests.delete(controller)
   }
   if (getSession(id)) {
@@ -581,7 +618,10 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   const epoch = historyEpoch
   deletingSessions.add(id)
   try {
-    getStreamController(id)?.abort()
+    // 该会话所有 lane 的生成一起停：只停一条的话，其余会继续往已删会话里写。
+    for (const controller of sessionControllers(id)) {
+      controller.abort()
+    }
     // 等本会话的流收尾，避免删除之后又被收尾保存写回来。
     await waitForIdle(id)
     if (epoch !== historyEpoch) {
@@ -629,7 +669,9 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   }
 }
 
-export const stopReply = (sessionId: string) => getStreamController(sessionId)?.abort()
+/** 停止生成：只停指定 lane（缺省为主线），同会话其他 lane 照常跑。 */
+export const stopReply = (sessionId: string, laneRootId: string | null = null) =>
+  getStreamController(sessionId, laneRootId)?.abort()
 
 /**
  * 提交指定会话的最新草稿；null 表示新建会话。
@@ -655,9 +697,12 @@ export const sendMessage = (
   const { text, files } = prepared
   const now = Date.now()
   let sessionId = targetSessionId
+  // 拦截只看这条 lane：同会话别的 lane 在生成，不影响这里发送。
   if (
     sessionId !== null &&
-    (deletingSessions.has(sessionId) || getStreamController(sessionId) || !getSession(sessionId))
+    (deletingSessions.has(sessionId) ||
+      getStreamController(sessionId, laneRootId) ||
+      !getSession(sessionId))
   ) {
     return false
   }
@@ -712,7 +757,7 @@ export const sendMessage = (
   }
   persist(sessionId)
   clearSentDraft(targetSessionId, laneRootId)
-  void streamReply(sessionId, reply, { history, question })
+  void streamReply(sessionId, reply, { history, question }, laneRootId)
   return true
 }
 
@@ -728,7 +773,8 @@ export const regenerateReply = (
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  // 只挡这条 lane：同会话的另一条追问在跑，不该拦住这里重新生成。
+  if (!session || getStreamController(sessionId, laneRootId)) {
     return
   }
   const base = laneRootId ? rootedConversation(session, laneRootId) ?? session : session
@@ -746,7 +792,7 @@ export const regenerateReply = (
     updatedAt: Date.now(),
   }))
   persist(sessionId)
-  void streamReply(sessionId, reply, { history, question })
+  void streamReply(sessionId, reply, { history, question }, laneRootId)
 }
 
 /**
@@ -766,7 +812,9 @@ export const askAt = (
   // 返回新建追问分支的根（用户提问）消息 id——pane 规则 planPlaceChild 的 childId
   // 唯一来源；校验不满足时返回 false，布尔判真语义保持（既有调用不算 break）
 ): string | false => {
-  if (get().importingHistory || !get().ready || getStreamController(sessionId)) {
+  // 追问每次都是一条全新 lane（分支根 id 此刻才生成），不存在同 lane 冲突，
+  // 所以不按会话拦：主线正在生成时也可以发起追问——这正是并发要的效果。
+  if (get().importingHistory || !get().ready) {
     return false
   }
   const session = getSession(sessionId)
@@ -802,7 +850,7 @@ export const askAt = (
     const parentId: string | null | undefined = cursor.parentId
     cursor = parentId ? (session.messages.find((m) => m.id === parentId) as Message | undefined) : undefined
   }
-  void streamReply(sessionId, reply, { history, question: userQuestion })
+  void streamReply(sessionId, reply, { history, question: userQuestion }, userQuestion.id)
   return userQuestion.id
 }
 
@@ -819,7 +867,7 @@ export const editMessage = (
     return false
   }
   const current = getSession(sessionId)
-  if (!current || getStreamController(sessionId)) {
+  if (!current || getStreamController(sessionId, laneRootId)) {
     return false
   }
   const base = laneRootId ? rootedConversation(current, laneRootId) ?? current : current
@@ -855,7 +903,7 @@ export const editMessage = (
     updatedAt: Date.now(),
   }))
   persist(sessionId)
-  void streamReply(sessionId, reply, { history: path.slice(0, index), question })
+  void streamReply(sessionId, reply, { history: path.slice(0, index), question }, laneRootId)
   return true
 }
 
@@ -863,7 +911,9 @@ export const selectMessageVersion = (sessionId: string, messageId: string) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return
   }
-  if (getStreamController(sessionId)) {
+  // 版本切换动的是可见链的 selectedChildId，仅凭 messageId 无法廉价判定它属于
+  // 哪条 lane；只要有 lane 在生成就挡住，宁可保守也不让两条流争同一条链。
+  if (isSessionStreaming(get(), sessionId)) {
     return
   }
   updateSession(sessionId, (session) => selectVersion(session, messageId))
@@ -881,7 +931,7 @@ export const continueReply = (
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || getStreamController(sessionId, laneRootId)) {
     return
   }
   const base = laneRootId ? rootedConversation(session, laneRootId) ?? session : session
@@ -911,19 +961,30 @@ export const continueReply = (
   updateReply(sessionId, reply)
   updateSession(sessionId, (s) => ({ ...s, updatedAt: Date.now() }))
   persist(sessionId)
-  void streamReply(sessionId, reply, { history: path.slice(0, -2), question, prefix: previous })
+  void streamReply(
+    sessionId,
+    reply,
+    { history: path.slice(0, -2), question, prefix: previous },
+    laneRootId,
+  )
 }
 
 /** 附件补传失败后重试：保留原回答位置，重新补传并请求 */
-export const retryUpload = (sessionId: string, messageId: string) => {
+export const retryUpload = (
+  sessionId: string,
+  messageId: string,
+  /** 与 regenerateReply 同桩：追问层里的回答不在主线可见链上。 */
+  laneRootId: string | null = null,
+) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || getStreamController(sessionId, laneRootId)) {
     return
   }
-  const path = getVisibleMessages(session)
+  const base = laneRootId ? rootedConversation(session, laneRootId) ?? session : session
+  const path = getVisibleMessages(base)
   const index = path.findIndex((message) => message.id === messageId)
   const question = path[index - 1]
   const previous = path[index]
@@ -937,7 +998,7 @@ export const retryUpload = (sessionId: string, messageId: string) => {
   const reply: AssistantMessage = { ...previous, status: 'pending', error: undefined }
   updateReply(sessionId, reply)
   persist(sessionId)
-  void streamReply(sessionId, reply, { history: path.slice(0, index - 1), question })
+  void streamReply(sessionId, reply, { history: path.slice(0, index - 1), question }, laneRootId)
 }
 
 type Request = { history: Message[]; question: UserMessage; prefix?: AssistantMessage }
@@ -1150,15 +1211,22 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
  * 补传失败时回复记为 upload 错误，可重试。
  * 服务端判定 file_id 失效时重新补传后重发，退避重试且次数有上限，超过则按原始报错收尾。
  */
-const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
+const streamReply = async (
+  sessionId: string,
+  initial: AssistantMessage,
+  request: Request,
+  laneRootId: string | null = null,
+) => {
   const controller = new AbortController()
+  // 生成任务按 lane 建键：同会话的多条追问各自跑，互不覆盖也不互相阻塞。
+  const key = streamKeyOf(sessionId, laneRootId)
   // 真机反馈③：追问分支（question 带 ask）即使会话已有标题也申请——
   // 生成的 title 落该轮追问的 ask.title，引子卡展示与标题行同源。
   const askTitleFor = request.question.ask ? request.question.id : null
   if (!getSession(sessionId)?.title || askTitleFor !== null) {
     titleRequests.set(controller, askTitleFor)
   }
-  set((state) => ({ streaming: { ...state.streaming, [sessionId]: controller } }))
+  set((state) => ({ streaming: { ...state.streaming, [key]: controller } }))
   let reply = initial
   let frame = 0
   const flush = () => {
@@ -1166,7 +1234,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
     frame = 0
     updateReply(sessionId, reply)
   }
-  streamFlushes.set(sessionId, flush)
+  streamFlushes.set(key, { sessionId, flush })
 
   try {
     for (let attempt = 0; ; attempt += 1) {
@@ -1288,12 +1356,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
     }
   } finally {
     titleRequests.delete(controller)
-    streamFlushes.delete(sessionId)
+    streamFlushes.delete(key)
     cancelAnimationFrame(frame)
     updateReply(sessionId, reply)
     set((state) => ({
       streaming: Object.fromEntries(
-        Object.entries(state.streaming).filter(([id]) => id !== sessionId)
+        Object.entries(state.streaming).filter(([id]) => id !== key)
       ),
     }))
     persist(sessionId)

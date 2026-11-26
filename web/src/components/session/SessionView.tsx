@@ -12,7 +12,7 @@ import {
 } from '../../services/chat/paneState.js'
 import { laneAncestors, rootedConversation } from '../../services/chat/rootedConversation.js'
 import { laneTitle } from '../../services/chat/laneTitle.js'
-import { askAt } from '../../services/chat/store.js'
+import { askAt, streamKeyOf, useChatStore } from '../../services/chat/store.js'
 import {
   computeTrack,
   paneWidths,
@@ -39,15 +39,16 @@ import styles from './SessionView.module.css'
 /** 会话页：标题栏（移动端为顶栏）+ 消息列表，输入框吸底 */
 export const SessionView = ({
   session,
-  streaming,
   siderCollapsed,
 }: {
   session: Session
-  streaming: boolean
   siderCollapsed: boolean
 }) => {
   const t = useTranslate()
   const isMobile = useIsMobile()
+  // 生成状态按 lane 取（用户 2026-11-26：同一会话可并发两条追问分支）：
+  // 会话级布尔会让一条 lane 的流锁住同会话其他 lane 的正文与按钮。
+  const streamingMap = useChatStore((state) => state.streaming)
   const title = session.title || t('untitledChat')
   // 追问层的标题行内容（真机反馈①）：lane 根的追问标题（ask.title，模型生成
   // 见 store 流式收尾）→ 无标题时剥出问题本体 → 兜底主线标题。
@@ -287,6 +288,14 @@ export const SessionView = ({
     </div>
   )
 
+  // 这条 lane 是否正在生成。主线 lane 的键与会话 id 同形，追问 lane 追加其根 id
+  // ——与 ChatInput / store 的判定同一口径（store 的 streamKeyOf）。
+  const isLaneBusy = (laneNodeId: string | null) =>
+    Object.hasOwn(
+      streamingMap,
+      streamKeyOf(session.id, laneNodeId === null || laneNodeId === sessionRootId ? null : laneNodeId),
+    )
+
   // 单 lane 内容：以该 lane 根消息重根的可见链（追问的问答不占父 lane 正文，
   // getVisibleMessages 已在挂载点截断）。「返回上一级」不在这里——它属于标题行
   // （真机反馈 2026-11-22：曾作为 lane 内独立浮动条另占一块空间，与手机端不同构）。
@@ -296,7 +305,7 @@ export const SessionView = ({
     return (
       <MessageList
         session={laneSession}
-        streaming={streaming}
+        streaming={isLaneBusy(laneNodeId)}
         footer={laneFooter(laneNodeId)}
         onChildOpen={(nodeId) => openChild(nodeId, side)}
         returnAnchor={returnAnchor}
@@ -410,9 +419,10 @@ export const SessionView = ({
                 <div data-right-pane>
                   <MessageList
                     session={rightSession}
-                    streaming={streaming}
+                    streaming={isLaneBusy(pane.rightNodeId)}
                     footer={laneFooter(pane.rightNodeId ?? '')}
                     onChildOpen={(nodeId) => openChild(nodeId, 'right')}
+                    laneRootId={pane.rightNodeId === sessionRootId ? undefined : pane.rightNodeId}
                   />
                 </div>
               ) : null
@@ -461,7 +471,7 @@ export const SessionView = ({
       ) : (
         <MessageList
           session={session}
-          streaming={streaming}
+          streaming={isLaneBusy(sessionRootId)}
           footer={laneFooter(sessionRootId ?? '')}
           onChildOpen={(nodeId) => openChild(nodeId, 'main')}
         />

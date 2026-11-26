@@ -47,9 +47,6 @@ export const App = () => {
     state.activeId === null ? false : state.sessionLoadErrors[state.activeId] === true
   )
   const frameRef = useMobileViewport(isMobile)
-  const streaming = useChatStore((state) =>
-    state.activeId === null ? false : Object.hasOwn(state.streaming, state.activeId)
-  )
   const activeId = useChatStore((state) => state.activeId)
 
   usePreventPageScroll(isMobile)
@@ -129,11 +126,7 @@ export const App = () => {
                 </div>
               </div>
             ) : session ? (
-              <SessionView
-                session={session}
-                streaming={streaming}
-                siderCollapsed={siderCollapsed}
-              />
+              <SessionView session={session} siderCollapsed={siderCollapsed} />
             ) : (
               <Welcome />
             )}

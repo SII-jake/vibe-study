@@ -131,7 +131,7 @@ const rerenderWithFreshSession = async (sessionId: string) => {
   const { useChatStore } = await import('../web/src/services/chat/store.js')
   const fresh = useChatStore.getState().sessionCache[sessionId] as Session
   act(() => {
-    root.render(<SessionView session={fresh} streaming={false} siderCollapsed={false} />)
+    root.render(<SessionView session={fresh} siderCollapsed={false} />)
   })
 }
 
@@ -139,7 +139,7 @@ describe('桌面端选中追问 → 右栏 AskPane（非浮动 Popover）', () =
   it('点击操作条追问后，AskPane 出现且无 AskPopover 层', async () => {
     const session = baseSession()
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const fragments = container.querySelectorAll('[data-fragment-index]')
     expect(fragments.length).toBe(2)
@@ -174,7 +174,7 @@ describe('桌面端提交追问 → 子对话进右栏（placeChild）', () => {
   it('在 AskPane 提交后，右栏渲染子对话链且仍带数据轨', async () => {
     const session = await seedStore(baseSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 走到起草位（同第一例）
     const fragments = container.querySelectorAll('[data-fragment-index]')
@@ -260,7 +260,7 @@ describe('四条 pane 规则闭环：卡进右栏 → 嵌套下潜 → 返回 �
   it('分支卡进右栏、嵌套追问沉栏、goBack 父子对照、promote 升中栏、✕清空右栏', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
 
     // 初始：单栏主线，无轨道；主线不被追问顶穿（q1 不进中栏正文）
@@ -362,7 +362,7 @@ describe('片段级引子卡 + 下划线 + 返回到这里高亮（第五步）'
   it('被追片段常驻下划线 + 片段下引子卡（追问数正确）', async () => {
     const session = await seedStore(fragmentAskedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const fragments = container.querySelectorAll('[data-fragment-index]')
     expect(fragments.length).toBe(3)
@@ -393,7 +393,7 @@ describe('片段级引子卡 + 下划线 + 返回到这里高亮（第五步）'
   it('点片段引子卡：子对话进右栏（§二.5 与点卡同路径）', async () => {
     const session = await seedStore(fragmentAskedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const fragments = container.querySelectorAll('[data-fragment-index]')
     const frag1b = fragments[1]
@@ -408,7 +408,7 @@ describe('片段级引子卡 + 下划线 + 返回到这里高亮（第五步）'
   it('返回父层时来源锚点片段带"返回到这里"高亮', async () => {
     const session = await seedStore(fragmentAskedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 点卡进右栏 → promote 子对话升中栏（嵌套下潜）
     const fragments = container.querySelectorAll('[data-fragment-index]')
@@ -466,7 +466,7 @@ describe('划线覆盖：锚点落在 list 项内也精确定点', () => {
       sessionCache: { [session.id]: session as never }, activeId: session.id, streaming: {},
     })
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const li = [...container.querySelectorAll('li')].find((el) => el.textContent?.includes('第一条目'))
     expect(li).toBeTruthy()
@@ -514,7 +514,7 @@ describe('第二轮真机反馈：片段定位按 anchorText 精确匹配（①�
   it('存的 fragmentIndex 漂移时：卡挂在 anchorText 实际所在的块，不随错索引走', async () => {
     const session = await seedStore(driftedIndexSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const fragments = container.querySelectorAll('[data-fragment-index]')
     expect(fragments.length).toBe(3)
@@ -568,7 +568,7 @@ describe('第二轮真机反馈 ④：ask 挂载不进版本分组', () => {
     const session = await seedStore(mainlineWithAskSibling())
     // a1.selectedChildId 指向 u2（主线继续），追问 q1 挂在 a1 下同 parentId
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     expect(container.textContent).toContain('第二问')
     expect(container.textContent).not.toMatch(/\d\s*\/\s*2/)
@@ -583,7 +583,7 @@ describe('桌面端「返回上一级」在标题行内', () => {
   it('进嵌套层后按钮落在标题行容器里，且 lane 内没有独立顶栏', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 进嵌套层：卡进右栏 → 设为当前（q1 升入中栏，此时中栏离主线根）
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
@@ -614,7 +614,7 @@ describe('桌面端「返回上一级」在标题行内', () => {
   it('主线根层不渲染返回按钮（无父级可回）', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     expect(container.textContent).not.toContain('返回上一级')
   }, 20000)
@@ -628,7 +628,7 @@ describe('右栏控件在标题行内（两栏内容顶对齐）', () => {
   it('打开子对话后，控件进标题行且右栏 lane 内没有独立顶栏', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 点分支卡：子对话进右栏
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
@@ -657,7 +657,7 @@ describe('右栏控件在标题行内（两栏内容顶对齐）', () => {
   it('✕关闭后标题行不再出现子对话控件（右栏空态）', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
     act(() => { card.click() })
@@ -677,7 +677,7 @@ describe('右栏标题显示该层自己的标题', () => {
   it('无 ask.title 时回退提问本体，不再显示固定文案「子对话」', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
     act(() => { card.click() })
@@ -700,7 +700,7 @@ describe('右栏标题显示该层自己的标题', () => {
       ),
     })
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
     act(() => { card.click() })
@@ -723,7 +723,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('有追问时标题行出现「追问树」入口', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const header = container.querySelector('[data-session-header]')!
     expect([...header.querySelectorAll('button')].some((b) => b.textContent?.trim() === '追问树')).toBe(
@@ -734,7 +734,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('无追问的会话不渲染入口（主线只有问答，没有树可看）', async () => {
     const session = await seedStore(baseSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     expect(treeButton()).toBeUndefined()
   }, 20000)
@@ -742,7 +742,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('点入口打开面板：列出整棵树并标出当前位置', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       treeButton()!.click()
@@ -760,7 +760,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('点树里任一追问：面板关闭且中栏直接跳过去（不必逐级进出）', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     expect(container.textContent).toContain('主线一。')
     act(() => {
@@ -780,7 +780,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('跳到深层节点：祖先链完整铺开，可直接落在 q2 那层', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       treeButton()!.click()
@@ -800,7 +800,7 @@ describe('追问树入口与跳转（桌面端）', () => {
   it('面板打开时返回键只关面板，不退层', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 先下潜一层：卡进右栏 → 设为当前（中栏 = q1）
     act(() => {
@@ -860,7 +860,7 @@ describe('右栏开着时中栏选文追问：右栏让位给起草位', () => {
   it('起草位在右栏出现（不被旧子对话挡住），取消后原子对话回位', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 点卡进右栏：q1 子对话占右栏，中栏仍是主线正文
     act(() => {
@@ -895,7 +895,7 @@ describe('右栏开着时中栏选文追问：右栏让位给起草位', () => {
   it('起草期间标题行不出现指向隐藏子对话的「设为当前 / ✕」', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
@@ -922,7 +922,7 @@ describe('右栏开着时中栏选文追问：右栏让位给起草位', () => {
   it('从该起草位提交：新子对话进右栏，旧子对话沉入中栏（连续下潜不丢）', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
@@ -975,7 +975,7 @@ describe('双栏输入互不串扰：草稿按 lane 分键', () => {
   it('在右栏输入不改变中栏输入框内容，反之亦然', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 点卡进右栏：此刻 DOM 里有中栏与右栏两个 ChatInput
     act(() => {
@@ -1008,7 +1008,7 @@ describe('双栏输入互不串扰：草稿按 lane 分键', () => {
   it('两个输入框各有独立草稿：切走再切回都还在', async () => {
     const session = await seedStore(nestedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()

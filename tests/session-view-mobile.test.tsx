@@ -117,7 +117,7 @@ const rerenderWithFreshSession = async (sessionId: string) => {
   const { useChatStore } = await import('../web/src/services/chat/store.js')
   const fresh = useChatStore.getState().sessionCache[sessionId] as Session
   act(() => {
-    root.render(<SessionView session={fresh} streaming={false} siderCollapsed={false} />)
+    root.render(<SessionView session={fresh} siderCollapsed={false} />)
   })
 }
 
@@ -167,7 +167,7 @@ describe('手机端点引子卡 + 追问消息呈现（真机反馈修复）', (
   it('点片段引子卡：视口整屏下潜到子对话（③ 点卡无变化；§三 单格轨道）', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 初始：恒走 TrackStage（根态单格），无下潜
     expect(container.querySelectorAll('[data-lane]').length).toBe(1)
@@ -191,7 +191,7 @@ describe('手机端点引子卡 + 追问消息呈现（真机反馈修复）', (
   it('追问的用户消息不再整段原样粘贴系统前缀（④）——只显示我的问题', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
     act(() => { card.click() })
@@ -209,7 +209,7 @@ describe('手机端选中追问 → AskSheet 底部弹层 + 提交即导航（�
   it('手机端选中后点追问：AskSheet 出现且无浮动 Popover，提交后整屏下潜到子对话', async () => {
     const session = await seedStore(baseSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     const fragments = container.querySelectorAll('[data-fragment-index]')
     const frag = fragments[1]
@@ -262,7 +262,7 @@ describe('系统返回键分层：先退层、再退应用（vite-back 事件契
   it('下潜后按返回键退到父层，主线根层按返回不拦截', async () => {
     const session = await seedStore(baseSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
 
     // 主线根层：vite-back 不被 preventDefault（壳据此走系统默认）
@@ -321,7 +321,7 @@ describe('第二轮真机反馈 ③：lane 内发送挂在该层链尾', () => {
   it('追问层里发送的消息：parentId 是追问层可见链尾（不是主线尾）', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 点卡下潜到追问层（lanes=2，末格在视口）
     const card = container.querySelector<HTMLButtonElement>('[data-ask-card]')!
@@ -362,7 +362,7 @@ describe('手机端追问树（图标入口 + 整屏下潜）', () => {
   it('有追问时标题行出现「查看追问树」图标入口', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     expect(headerButton('查看追问树')).toBeTruthy()
   }, 20000)
@@ -370,7 +370,7 @@ describe('手机端追问树（图标入口 + 整屏下潜）', () => {
   it('主线根层不显示返回图标（无父级可回）', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 有追问 → 追问树图标在；但没下潜 → 返回图标不在
     expect(headerButton('查看追问树')).toBeTruthy()
@@ -380,7 +380,7 @@ describe('手机端追问树（图标入口 + 整屏下潜）', () => {
   it('下潜一层后返回图标出现，点它退回父层', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()
@@ -397,7 +397,7 @@ describe('手机端追问树（图标入口 + 整屏下潜）', () => {
   it('点图标入口打开面板，点另一层追问即整屏下潜过去', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     // 先下潜到 q1，再打开树——当前位置应在 q1，且主线根仍在列表里
     act(() => {
@@ -420,7 +420,7 @@ describe('手机端追问树（图标入口 + 整屏下潜）', () => {
   it('面板打开时返回键只收面板，整屏下潜的层不动', async () => {
     const session = await seedStore(askedSession())
     act(() => {
-      root.render(<SessionView session={session} streaming={false} siderCollapsed={false} />)
+      root.render(<SessionView session={session} siderCollapsed={false} />)
     })
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-ask-card]')!.click()

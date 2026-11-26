@@ -9,7 +9,7 @@ import {
 } from '../base/icons.js'
 import { setSearch, setThinking, useSettings } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
+import { sendMessage, stopReply, streamKeyOf, useChatStore } from '../../services/chat/store.js'
 import {
   addDraftFiles,
   EMPTY_DRAFT,
@@ -72,8 +72,10 @@ const Input = ({
   const { text, attachments } = draft
   const setText = (value: string) => setDraftText(sessionId, value, laneRootId)
   const draftReady = useUploads((state) => prepareDraftMessage(draft, state.tasks) !== null)
+  // 生成状态按 lane 判定（用户 2026-11-26：同一会话可并发多条追问）：
+  // 只按会话取会让主线在跑时追问分支也显示停止按钮、还停掉主线那条。
   const streaming = useChatStore(
-    (state) => sessionId !== null && Object.hasOwn(state.streaming, sessionId)
+    (state) => sessionId !== null && Object.hasOwn(state.streaming, streamKeyOf(sessionId, laneRootId))
   )
   const thinking = useSettings((state) => state.thinking)
   const importingHistory = useChatStore((state) => state.importingHistory)
@@ -293,7 +295,7 @@ const Input = ({
               aria-label={t('chatInputStopButtonTooltip')}
               onClick={() => {
                 stopReadAloud()
-                stopReply(sessionId)
+                stopReply(sessionId, laneRootId)
               }}
             >
               <IconStopFill16 />
