@@ -72,7 +72,11 @@ export function createTaskStore(opts = {}) {
         }
       } catch (error) {
         task.status = task.aborting ? 'aborted' : 'error'
-        task.error = error instanceof Error ? error.message : String(error)
+        // 主动停止不是失败：abort 会让上游抛出取消异常，那不是错误原因，
+        // 记下来只会让展示层对用户主动停止的操作冒出一条错误提示。
+        if (!task.aborting) {
+          task.error = error instanceof Error ? error.message : String(error)
+        }
       } finally {
         task.finishedAt = now()
         // 收尾通知：订阅方据此结束 SSE 响应，不要挂着等一个永不再来的事件
