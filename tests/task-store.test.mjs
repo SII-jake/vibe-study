@@ -185,6 +185,8 @@ describe('生成任务仓储：停止与过期清理', () => {
     await store.settled('t1')
     expect(aborted).toBe(true)
     expect(store.get('t1')?.status).toBe('aborted')
+    // 主动停止不是失败：error 留给真正的错误，否则展示层会据此冒出错误提示
+    expect(store.get('t1')?.error ?? null).toBe(null)
   })
 
   it('超过 TTL 的已结束任务被清掉，在跑的不清', async () => {
