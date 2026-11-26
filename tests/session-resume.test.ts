@@ -39,9 +39,9 @@ const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms))
 type Asst = Extract<Message, { role: 'assistant' }>
 
 /** 「刷新前生成到一半」的单轮会话：回复停在 streaming，本地已有半截块 */
-const pendingSession = (blocks: Asst['blocks']): Session => ({
+const pendingSession = (blocks: Asst['blocks'], title = '测试'): Session => ({
   id: 's1',
-  title: '测试',
+  title,
   createdAt: 1,
   updatedAt: 10,
   rootMessageId: 'u1',
@@ -109,7 +109,9 @@ const seed = async (stored: Session) => {
   const { useChatStore } = await import('../web/src/services/chat/store.js')
   useChatStore.setState({
     ready: true,
-    sessions: [{ id: 's1', title: '测试', createdAt: 1, updatedAt: 10 }],
+    // 摘要必须与存储里的标题一致：加载时会用摘要覆盖不一致的元数据，
+    // 固定成别的标题会把「首轮尚无标题」这个前提悄悄改掉
+    sessions: [{ id: 's1', title: stored.title, createdAt: 1, updatedAt: 10 }],
     sessionCache: {},
     activeId: null,
     streaming: {},
@@ -272,6 +274,50 @@ describe('刷新后重新接上生成', () => {
 
     expect(replyOf(store.useChatStore.getState())?.status).toBe('done')
     expect(textOf(replyOf(store.useChatStore.getState()))).toEqual(['前半结尾'])
+  })
+
+  it('标题随回放补回：刷新前没收到 message_delta，接续时照样落到会话标题', async () => {
+    // 标题和 stop_reason 在同一个 message_delta 里下发，恰在回复末尾——
+    // 刷新最容易丢的就是它，不补的话会话永远停在「新对话」。
+    // 首轮会话标题为空，这正是刷新丢标题的真实场景（已有标题不会被覆盖）。
+    await seed(pendingSession([{ type: 'text', text: '前半' }], ''))
+    await stubReadTask({ id: 'a1', status: 'done', baseBlocks: 0 })
+    await stubReplay([
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '前半结尾' } },
+      {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn', stop_sequence: null, title: '补回来的标题' },
+      },
+      { type: 'message_stop' },
+    ])
+
+    const store = await loadSession()
+    await tick()
+
+    expect(store.useChatStore.getState().sessionCache['s1']?.title).toBe('补回来的标题')
+  })
+
+  it('追问 lane 的标题回落到分支根 ask.title，不改会话标题', async () => {
+    await seed(askSession([]))
+    await stubReadTask({ id: 'a2', status: 'done', baseBlocks: 0 })
+    await stubReplay([
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '追问答' } },
+      {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn', stop_sequence: null, title: '追问标题' },
+      },
+      { type: 'message_stop' },
+    ])
+
+    const store = await loadSession()
+    await tick()
+
+    const session = store.useChatStore.getState().sessionCache['s1']
+    expect(session?.title).toBe('测试')
+    const askQuestion = session?.messages.find((m) => m.id === 'q1')
+    expect(askQuestion?.role === 'user' ? askQuestion.ask?.title : undefined).toBe('追问标题')
   })
 
   it('任务被停止过：接回来的回复收成 stopped', async () => {
