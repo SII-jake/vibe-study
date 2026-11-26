@@ -2,10 +2,16 @@ import { createNodeStore, isValidNodesPayload } from './node-store.mjs'
 import { apiNeedsAuth } from './auth.mjs'
 import { isConfigured } from './config.mjs'
 import { createTaskStore } from './task-store.mjs'
+import { readBuildInfo } from './build-info.mjs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 
 const gzipAsync = promisify(gzip)
+
+/** 产物目录缺省值：与 server/index.mjs 同口径（仓库内 dist），可用 opts.distDir 覆盖。 */
+const DEFAULT_DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 /**
  * 按 SSE 帧边界切分上游字节（RFC 兼容：CRLF / LF / CR 三种空行都算一帧结束）。
@@ -128,6 +134,8 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
   const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
   /** 生成任务仓储：任务独立持有上游流，HTTP 连接只是订阅者 */
   const taskStore = opts.taskStore ?? createTaskStore()
+  /** 产物目录：健康检查据此报出「这份 dist 由哪次提交编译而来」 */
+  const distDir = opts.distDir ?? DEFAULT_DIST_DIR
 
   /**
    * 起一条上游流并逐帧记账。
@@ -296,6 +304,8 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
         configured: isConfigured(config),
         model: config.model,
         models: config.models,
+        // 构建来源来自产物文件，不是运行时 git：旧 dist 冒充新版本正是要核对的场景
+        build: await readBuildInfo(distDir),
       })
       return
     }

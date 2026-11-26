@@ -8,13 +8,13 @@
     "dev": "node server/index.mjs & rspack serve -c web/rspack.config.ts",
     "dev:api": "node server/index.mjs",
     "start": "node server/index.mjs",
-    "build": "tsc -p web/tsconfig.json && NODE_ENV=production rspack build -c web/rspack.config.ts",
+    "build": "tsc -p web/tsconfig.json && NODE_ENV=production rspack build -c web/rspack.config.ts && node scripts/write-build-info.mjs",
     "preview": "node server/index.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p web/tsconfig.json",
     "type:web": "tsc -p web/tsconfig.json",
     "dev:web": "rspack serve -c web/rspack.config.ts",
-    "build:web": "NODE_ENV=production rspack build -c web/rspack.config.ts"
+    "build:web": "NODE_ENV=production rspack build -c web/rspack.config.ts && node scripts/write-build-info.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

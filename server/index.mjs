@@ -20,7 +20,7 @@ if (!isConfigured(config)) {
   console.warn('[study-api] 未配置 AI_API_KEY 或 AI_MODEL，/api/chat 将返回 503。')
 }
 
-const apiHandler = createHandler(config)
+const apiHandler = createHandler(config, fetch, { distDir })
 const appVersionHandler = createAppVersionHandler(distDir)
 const staticHandler = createStaticHandler(distDir, { auth: config.auth })
 const authHandler = createAuthHandler(config.auth, apiHandler)
