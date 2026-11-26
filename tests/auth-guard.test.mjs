@@ -15,8 +15,11 @@ import {
 } from '../server/auth.mjs'
 import { createHandler } from '../server/handler.mjs'
 import { createStaticHandler } from '../server/static.mjs'
+import { writeBuildInfo } from '../server/build-info.mjs'
 
 const PASSWORD = 'unit-test-pass-123'
+/** 本文件为构建来源用例起的临时产物目录，统一在 afterEach 清理。 */
+const buildDirs = []
 
 function makeAuth(overrides = {}) {
   return {
@@ -323,6 +326,9 @@ describe('API 登录拦截', () => {
   afterEach(async () => {
     await running?.close()
     running = null
+    for (const dir of buildDirs.splice(0)) {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('未登录时所有 /api 一律 401 JSON，不走到业务路由', async () => {
@@ -362,6 +368,30 @@ describe('API 登录拦截', () => {
 
     const forged = await fetch(`${running.base}/api/health`, { headers: { cookie: `${auth.cookie}=bad` } })
     expect(forged.status).toBe(401)
+  })
+
+  it('未登录拿不到构建来源 commit，登录后才看得到', async () => {
+    // 构建来源暴露的是「线上跑的是哪一版」，等同部署指纹，不该让未登录者随口问出来
+    const dir = await mkdtemp(join(tmpdir(), 'vibe-auth-build-'))
+    buildDirs.push(dir)
+    await writeBuildInfo(dir, {
+      commit: 'feedface',
+      branch: 'main',
+      dirty: false,
+      builtAt: '2026-11-26T09:00:00.000Z',
+    })
+
+    const auth = makeAuth()
+    const api = createHandler(baseConfig(), undefined, { auth, distDir: dir })
+    running = await serve(createAuthHandler(auth, api))
+
+    const anonymous = await fetch(`${running.base}/api/health`, { ...noRedirect })
+    expect(anonymous.status).toBe(401)
+    expect(await anonymous.text()).not.toContain('feedface')
+
+    const { setCookie } = await login(running.base, PASSWORD)
+    const ok = await fetch(`${running.base}/api/health`, { headers: { cookie: cookiePair(setCookie) } })
+    expect((await ok.json()).build.commit).toBe('feedface')
   })
 
   it('未启用时 api 处理器不加任何拦截，行为与现状一致', async () => {
