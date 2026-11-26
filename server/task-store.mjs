@@ -30,11 +30,12 @@ export function createTaskStore(opts = {}) {
 
   /**
    * 起一个任务。run(emit, signal) 负责产出片段；emit 只在任务仍在跑时记账。
-   * 同 id 重复创建不覆盖——重发请求不该顶掉正在跑的那条。
+   * 同 id 的**在跑**任务不覆盖——重发请求不该顶掉正在跑的那条；
+   * 已结束的可以重建：续写/重试复用同一 lane 键，上一轮早就收尾了。
    */
-  const create = (id, run) => {
+  const create = (id, run, options = {}) => {
     const existing = tasks.get(id)
-    if (existing) {
+    if (existing?.status === 'running') {
       return existing
     }
     const controller = new AbortController()
@@ -44,6 +45,8 @@ export function createTaskStore(opts = {}) {
       /** 已产出的片段，下标即游标（seq） */
       events: [],
       error: null,
+      /** 任务开始前该回复已有的块数：刷新重连时据此裁回起点再重放，避免重复块 */
+      baseBlocks: options.baseBlocks ?? 0,
       controller,
       listeners: new Set(),
       finishedAt: null,
