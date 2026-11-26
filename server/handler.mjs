@@ -1,10 +1,28 @@
 import { createNodeStore, isValidNodesPayload } from './node-store.mjs'
 import { apiNeedsAuth } from './auth.mjs'
 import { isConfigured } from './config.mjs'
+import { createTaskStore } from './task-store.mjs'
 import { gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 
 const gzipAsync = promisify(gzip)
+
+/**
+ * 按 SSE 帧边界切分上游字节（RFC 兼容：CRLF / LF / CR 三种空行都算一帧结束）。
+ * 生成任务按帧记账，重连时才能带着确定的游标续上；按原始分片记账会让
+ * 帧边界随网络抖动漂移，续接游标就没有意义。
+ */
+function splitSseFrames(buffer) {
+  const frames = []
+  let rest = buffer
+  for (;;) {
+    const match = /\r\n\r\n|\n\n|\r\r/.exec(rest)
+    if (!match) break
+    frames.push(rest.slice(0, match.index + match[0].length))
+    rest = rest.slice(match.index + match[0].length)
+  }
+  return { frames, rest }
+}
 
 /**
  * 请求体上限（A，真机反馈 2026-11-22 远端 "H3多模态推理优化" 两端不一致）。
@@ -108,6 +126,71 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
   const auth = opts.auth ?? config.auth
   /** 请求体上限可注入：测试用小值验证超限路径，不必真造 32 MB */
   const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
+  /** 生成任务仓储：任务独立持有上游流，HTTP 连接只是订阅者 */
+  const taskStore = opts.taskStore ?? createTaskStore()
+
+  /**
+   * 起一条上游流并逐帧记账。
+   * 关键：中止信号只由任务自己（DELETE）触发；订阅者断开不经过这里，
+   * 所以刷新页面不会掐掉上游——这是本次改动的全部要点。
+   */
+  const runUpstream = async (body, beta, emit, signal) => {
+    const upstream = await fetchImpl(`${config.deepseekBase}/anthropic/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.deepseekKey,
+        ...(beta ? { 'anthropic-beta': String(beta) } : {}),
+      },
+      body: JSON.stringify(body),
+      signal,
+    })
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => '')
+      // 以 error 帧告知订阅方，与代理路径的报错形态一致
+      emit(
+        `data: ${JSON.stringify({
+          type: 'error',
+          error: { message: detail || `上游返回 ${upstream.status}` },
+        })}\n\n`,
+      )
+      return
+    }
+    if (!upstream.body) {
+      return
+    }
+    const reader = upstream.body.getReader()
+    // 注入的 fetch 实现可能不响应 signal（测试桩即如此），所以自己也取消读取器
+    const onAbort = () => {
+      reader.cancel().catch(() => {})
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    const decoder = new TextDecoder()
+    let buffer = ''
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const { frames, rest } = splitSseFrames(buffer)
+        buffer = rest
+        for (const frame of frames) {
+          emit(frame)
+        }
+      }
+      buffer += decoder.decode()
+      if (buffer.trim() !== '') {
+        emit(buffer)
+      }
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+      try {
+        await reader.cancel()
+      } catch {
+        // 流已结束
+      }
+    }
+  }
 
   return async function handler(request, response) {
     const url = new URL(request.url, 'http://localhost')
@@ -214,6 +297,111 @@ export function createHandler(config, fetchImpl = fetch, opts = {}) {
         model: config.model,
         models: config.models,
       })
+      return
+    }
+
+    // 生成任务（用户 2026-11-26）：把「生成」从 HTTP 连接里摘出来，连接只订阅。
+    // 刷新页面 = 断开订阅，上游照跑；带 since 重新订阅即可接上。
+    // 任务 id 走查询参数：前端 streamKeyOf 生成的追问键含 NUL，不能进 URL 路径。
+    if (url.pathname === '/api/tasks' || url.pathname === '/api/tasks/events') {
+      taskStore.sweep()
+      const isEvents = url.pathname === '/api/tasks/events'
+      const id = url.searchParams.get('id') ?? ''
+
+      if (request.method === 'POST' && !isEvents) {
+        if ((config.deepseekKey ?? '') === '') {
+          sendJson(response, 503, { error: '服务端未配置 DEEPSEEK_KEY' })
+          return
+        }
+        let read
+        try {
+          read = await readBody(request, maxBodyBytes)
+        } catch {
+          sendJson(response, 400, { error: '请求体不是合法 JSON' })
+          return
+        }
+        if (!read.ok) {
+          sendJson(response, 413, { error: '请求体过大', limit: read.limit, size: read.size })
+          return
+        }
+        let payload
+        try {
+          payload = JSON.parse(read.body)
+        } catch {
+          sendJson(response, 400, { error: '请求体不是合法 JSON' })
+          return
+        }
+        if (typeof payload?.id !== 'string' || payload.id === '' || !payload?.request) {
+          sendJson(response, 400, { error: '需要字符串 id 与 request' })
+          return
+        }
+        const task = taskStore.create(payload.id, (emit, signal) =>
+          runUpstream(payload.request, request.headers['anthropic-beta'], emit, signal),
+        )
+        // 立即回执：任务在后台跑，不等它结束
+        sendJson(response, 200, { id: task.id, status: task.status })
+        return
+      }
+
+      if (request.method === 'GET' && !isEvents) {
+        const task = taskStore.get(id)
+        if (!task) {
+          sendJson(response, 404, { error: '未知任务' })
+          return
+        }
+        sendJson(response, 200, { id: task.id, status: task.status, error: task.error })
+        return
+      }
+
+      if (request.method === 'GET' && isEvents) {
+        if (!taskStore.get(id)) {
+          sendJson(response, 404, { error: '未知任务' })
+          return
+        }
+        const since = Number(url.searchParams.get('since') ?? '0')
+        response.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
+          Connection: 'keep-alive',
+        })
+        // 订阅只读任务已产出的片段：连接断开只退订，绝不回头取消上游。
+        let closed = false
+        const off = taskStore.subscribe(
+          id,
+          Number.isFinite(since) ? since : 0,
+          (seq, frame) => {
+            if (!closed) {
+              response.write(`id: ${seq}\n`)
+              response.write(frame)
+            }
+          },
+          () => {
+            if (!closed) {
+              closed = true
+              response.end()
+            }
+          },
+        )
+        response.on('close', () => {
+          closed = true
+          off()
+        })
+        return
+      }
+
+      if (request.method === 'DELETE' && !isEvents) {
+        taskStore.abort(id)
+        const task = taskStore.get(id)
+        if (!task) {
+          sendJson(response, 404, { error: '未知任务' })
+          return
+        }
+        sendJson(response, 200, { id: task.id, status: task.status })
+        return
+      }
+
+      sendJson(response, 404, { error: '未知路径' })
       return
     }
 
